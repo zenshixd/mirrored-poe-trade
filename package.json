@@ -1,0 +1,27 @@
+{
+  "name": "mirrored-poe-trade",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "bun-types": "1.0.13",
+    "prettier": "^3.0.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "workspaces": [
+    "infra",
+    "trade-api"
+  ],
+  "dependencies": {
+    "@opentelemetry/api": "^1.7.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.40.1",
+    "@opentelemetry/exporter-metrics-otlp-grpc": "^0.45.1",
+    "@opentelemetry/exporter-trace-otlp-grpc": "^0.45.1",
+    "@opentelemetry/id-generator-aws-xray": "^1.2.1",
+    "@opentelemetry/propagator-aws-xray": "^1.3.1",
+    "@opentelemetry/sdk-metrics": "^1.18.1",
+    "@opentelemetry/sdk-node": "^0.45.1",
+    "elysia": "^0.7.29"
+  }
+}

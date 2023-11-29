@@ -1,0 +1,23 @@
+{
+  "name": "@mirrored-poe-trade/trade-api",
+  "version": "0.0.29",
+  "module": "src/updater.ts",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/updater.ts",
+    "build": "bun build src/updater.ts --outfile=dist/updater.js --target=bun",
+    "push": "./tools/docker-push.sh"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.418.0",
+    "@aws-sdk/lib-dynamodb": "^3.418.0",
+    "aws-xray-sdk": "^3.5.3",
+    "dynamodb-toolbox": "^0.8.5"
+  }
+}
