@@ -1,6 +1,6 @@
 {
   "name": "@mirrored-poe-trade/trade-api",
-  "version": "0.0.29",
+  "version": "0.0.36",
   "module": "src/updater.ts",
   "type": "module",
   "scripts": {

@@ -18,7 +18,7 @@ async function updateDb(token: string) {
   );
   console.log(`Found ${stashes.length} public stashes!`);
   const batchItems: Record<string, WriteRequest> = {};
-  for (const stashesChunk of chunkify(stashes, 50)) {
+  for (const stashesChunk of chunkify(stashes, 25)) {
     await parallelize(stashesChunk, async (stash) => {
       console.log(`[stash ${stash.id}] Querying changed stash...`);
       const startTime = process.hrtime.bigint();
@@ -100,6 +100,7 @@ async function updateDb(token: string) {
         const response = await promise;
         console.log(`[batch #${n}] Batch completed.`);
       } catch (e) {
+        debugger;
         console.error(`[batch #${n}] Batch failed!`);
         throw e;
       }
@@ -118,7 +119,10 @@ async function updateDb(token: string) {
         }
       });
       promises.push(
-        batchExecute(promises.length, mirroredPoeTradeTable.batchWrite(batch)),
+        batchExecute(
+          promises.length + 1,
+          mirroredPoeTradeTable.batchWrite(batch),
+        ),
       );
     }
 

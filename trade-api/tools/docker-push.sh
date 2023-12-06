@@ -11,3 +11,8 @@ docker tag mirrored-poe-trade:latest "032544014746.dkr.ecr.eu-central-1.amazonaw
 docker tag mirrored-poe-trade:latest "032544014746.dkr.ecr.eu-central-1.amazonaws.com/mirrored-poe-trade:latest"
 docker push "032544014746.dkr.ecr.eu-central-1.amazonaws.com/mirrored-poe-trade:$VERSION"
 docker push "032544014746.dkr.ecr.eu-central-1.amazonaws.com/mirrored-poe-trade:latest"
+
+aws ecs update-service --cluster "MirroredPoeTrade" --service "Updater" --force-new-deployment --region eu-central-1
+echo Waiting until Updater is stable ...
+aws ecs wait services-stable --cluster "MirroredPoeTrade" --services "Updater" --region eu-central-1
+echo Updater deploy done!

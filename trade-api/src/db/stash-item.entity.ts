@@ -81,7 +81,7 @@ export function toStashItem(
   const { priceValue, priceUnit } = parseNote(item.note);
   return {
     stash_id: stash.id,
-    stash_accountName: stash.accountName!,
+    stash_accountName: accountName(stash.accountName),
     stash_league: stash.league!,
     stash_name: stash.stash,
 
@@ -99,3 +99,11 @@ export function toStashItem(
     entity: StashItem.name,
   };
 }
+
+const accountName = (accountName: string | undefined) => {
+  if (!accountName || accountName.length == 0) {
+    return "$$$unknown";
+  }
+
+  return accountName;
+};
