@@ -1,14 +1,91 @@
-import "./instrumentation";
-import { authorize, getPublicStashes } from "./poe-api";
-import { StashItem, toStashItem } from "./db/stash-item.entity.ts";
-import { mirroredPoeTradeTable } from "./db/db.ts";
-import { WriteRequest } from "@aws-sdk/client-dynamodb";
-import { BatchWriteCommandOutput } from "@aws-sdk/lib-dynamodb";
+import { ItemListing } from "@prisma/client";
+import { authorize, getPublicStashes, PublicStashChange } from "./poe-api";
 import { chunkify } from "./utils/chunkify";
-import { parallelize } from "./utils/parallelize.ts";
-import { getNextChangeId, setNextChangeId } from "./db/next-change.entity.ts";
+import { toItemListing } from "./db/item-listing.utils.ts";
+import { getNextChangeId, setNextChangeId } from "./db/next-change.utils.ts";
+import { prisma } from "./db/db.ts";
 
 let nextChangeId = await getNextChangeId();
+
+type BatchItem =
+  | BatchItemCreateStash
+  | BatchItemDeleteStash
+  | BatchItemUpdate
+  | BatchItemDropItems;
+
+export interface BatchItemUpdate {
+  type: "update";
+  data: ItemListing;
+}
+
+interface BatchItemCreateStash {
+  type: "createStash";
+  stash: PublicStashChange;
+}
+
+interface BatchItemDeleteStash {
+  type: "delete";
+  stashId: string;
+}
+
+interface BatchItemDropItems {
+  type: "dropItems";
+  stashId: string;
+  itemIds: string[];
+}
+
+async function prismaBatch(batch: BatchItem[]): Promise<any> {
+  return await Promise.all(
+    batch.map((item) => {
+      if (item.type === "createStash") {
+        console.log(`pushing stash ${item.stash.id}`);
+        return prisma.publicStash.create({
+          data: {
+            id: item.stash.id!,
+            name: item.stash.stash ?? "<no stash name>",
+            accountName: item.stash.accountName ?? "<unknown account>",
+            league: item.stash.league!,
+            items: {
+              createMany: {
+                data: item.stash.items.map((stashItem) => {
+                  const { stashId, ...itemListing } = toItemListing(
+                    item.stash,
+                    stashItem,
+                  );
+
+                  return itemListing;
+                }),
+              },
+            },
+          },
+        });
+      } else if (item.type === "update") {
+        return prisma.itemListing.upsert({
+          create: item.data,
+          update: item.data,
+          where: {
+            id: item.data.id,
+          },
+        });
+      } else if (item.type === "delete") {
+        return prisma.publicStash.delete({
+          where: {
+            id: item.stashId,
+          },
+        });
+      } else if (item.type === "dropItems") {
+        return prisma.itemListing.deleteMany({
+          where: {
+            stashId: item.stashId,
+            id: {
+              notIn: item.itemIds,
+            },
+          },
+        });
+      }
+    }),
+  );
+}
 
 async function updateDb(token: string) {
   console.log(`Request public stashes for next_change_id=${nextChangeId}...`);
@@ -16,122 +93,103 @@ async function updateDb(token: string) {
     token,
     nextChangeId,
   );
+  const batchItems: BatchItem[] = [];
   console.log(`Found ${stashes.length} public stashes!`);
-  const batchItems: Record<string, WriteRequest> = {};
-  for (const stashesChunk of chunkify(stashes, 25)) {
-    await parallelize(stashesChunk, async (stash) => {
-      console.log(`[stash ${stash.id}] Querying changed stash...`);
-      const startTime = process.hrtime.bigint();
-      const { Items } = await StashItem.query(stash.id, {
-        index: "stashIdIndex",
+
+  console.log(`[stashes] Querying changed stashes...`);
+  const startTime = process.hrtime.bigint();
+  const stashIds = stashes.map((stash) => stash.id);
+  const dbStashes = await prisma.publicStash.findMany({
+    where: {
+      id: {
+        in: stashIds,
+      },
+    },
+    orderBy: {
+      id: "asc",
+    },
+  });
+  const queryTime = (process.hrtime.bigint() - startTime) / 1_000_000n;
+  console.log(
+    `[stashes] Querying complete! Took ${queryTime}ms and found ${dbStashes.length} stashes!`,
+  );
+
+  for (const stash of stashes) {
+    const dbStash = dbStashes.find((dbStash) => dbStash.id === stash.id);
+    if (dbStash && !stash.public) {
+      // Stash got unlisted - remove all items from db
+      dbStashes.forEach((item) => {
+        batchItems.push({
+          type: "delete",
+          stashId: stash.id,
+        });
       });
-      const queryTime = (process.hrtime.bigint() - startTime) / 1_000_000n;
-      console.log(`[stash ${stash.id}] Querying complete! Took ${queryTime}ms`);
+    }
 
-      if (!Items) {
-        console.log(
-          `[Stash ${stash.id}] Items is undefined for some reason. Skip.`,
-        );
-        return;
-      }
+    if (!dbStash && stash.public) {
+      // we havent indexed this stash tab
+      // just put everything in
+      batchItems.push({
+        type: "createStash",
+        stash: stash,
+      });
+    }
 
-      if (Items.length > 0 && !stash.public) {
-        // Stash got unlisted - remove all items from db
-        Items.forEach((item) => {
-          batchItems[item.id] = StashItem.deleteBatch({
-            pk: item.id,
-            sk: item.id,
-          });
+    if (dbStash && stash.public) {
+      // add items that need to be created
+      const itemIds: string[] = [];
+      stash.items.forEach((item) => {
+        batchItems.push({
+          type: "update",
+          data: toItemListing(stash, item),
         });
-      }
+        itemIds.push(item.id!);
+      });
 
-      if (Items.length === 0 && stash.public) {
-        // we havent indexed this stash tab
-        // just put everything in
-        stash.items.forEach((item) => {
-          batchItems[item.id!] = StashItem.putBatch({
-            pk: item.id!,
-            sk: item.id!,
-            ...toStashItem(stash, item),
-          });
-        });
-      }
-
-      if (Items.length > 0 && stash.public) {
-        // we need to create a diff between stash and db
-
-        // add items that need to be created
-        stash.items.forEach((item) => {
-          const alreadyExists = Items.some((dbItem) => item.id === dbItem.id);
-
-          if (!alreadyExists) {
-            batchItems[item.id!] = StashItem.putBatch({
-              pk: item.id!,
-              sk: item.id!,
-              ...toStashItem(stash, item),
-            });
-          }
-        });
-
-        // delete items which are not present in stash info
-        Items.forEach((item) => {
-          const stillExists = stash.items.some(
-            (stashItem) => stashItem.id === item.id,
-          );
-
-          if (!stillExists) {
-            batchItems[item.id!] = StashItem.deleteBatch({
-              pk: item.id!,
-              sk: item.id!,
-            });
-          }
-        });
-      }
-    });
+      // drop all items beside specified
+      batchItems.push({
+        type: "dropItems",
+        stashId: stash.id,
+        itemIds,
+      });
+    }
   }
 
   if (Object.keys(batchItems).length > 0) {
-    const batchExecute = async (
-      n: number,
-      promise: Promise<BatchWriteCommandOutput>,
-    ) => {
-      console.log(`[batch #${n}] Starting batch ...`);
-      try {
-        const response = await promise;
-        console.log(`[batch #${n}] Batch completed.`);
-      } catch (e) {
-        debugger;
-        console.error(`[batch #${n}] Batch failed!`);
-        throw e;
-      }
-    };
-
-    const promises = [];
     let itemsCreated = 0;
     let itemsDeleted = 0;
     console.log(`Executing ${batchItems.length} batches...`);
+
+    let batchN = 1;
     for (let batch of chunkify(Object.values(batchItems), 25)) {
       batch.forEach((item) => {
-        if (item.PutRequest) {
+        if (item.type == "update") {
           itemsCreated++;
-        } else if (item.DeleteRequest) {
+        } else if (item.type === "delete") {
           itemsDeleted++;
         }
       });
-      promises.push(
-        batchExecute(
-          promises.length + 1,
-          mirroredPoeTradeTable.batchWrite(batch),
-        ),
-      );
+      console.log(`[batch #${batchN}] Starting batch ...`);
+      try {
+        const response = await prismaBatch(batch);
+        console.log(`[batch #${batchN}] Batch completed.`);
+        batchN++;
+      } catch (e) {
+        debugger;
+        console.error(`[batch #${batchN}] Batch failed!`);
+        throw e;
+      }
     }
 
-    await Promise.all(promises);
     console.log(
       `Added/updated ${itemsCreated} items and deleted ${itemsDeleted}!`,
     );
   }
 
+  const completeTime = (process.hrtime.bigint() - startTime) / 1_000_000n;
+  console.log(
+    `Processing ${stashes.length} stashes done in ${completeTime}ms!`,
+  );
   nextChangeId = next_change_id;
   console.log("Saving next_change_id:", nextChangeId);
   await setNextChangeId(nextChangeId!);

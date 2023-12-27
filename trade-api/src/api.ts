@@ -1,9 +1,12 @@
 import { Elysia } from "elysia";
-import { itemNameAndLeagueValue, StashItem } from "./db/stash-item.entity.ts";
+import { prisma } from "./db/db.ts";
 
+const port = process.env.PORT || 8000;
 new Elysia()
   .get("/query", async ({ query, set }) => {
+    const startTime = process.hrtime.bigint();
     const { name, league } = query;
+    console.log(`Querying for ${name} in ${league}...`);
 
     if (!name || !league) {
       set.status = 400;
@@ -12,9 +15,15 @@ new Elysia()
       };
     }
 
-    const result = await StashItem.query(itemNameAndLeagueValue(name, league), {
-      index: "itemNameAndLeagueIndex",
+    const result = await prisma.itemListing.findMany({
+      where: {
+        name,
+        league,
+      },
     });
-    return;
+
+    const time = (process.hrtime.bigint() - startTime) / 1_000_000n;
+    console.log(`Querying for ${name} in ${league} done in ${time}ms`);
+    return result;
   })
-  .listen(8000);
+  .listen(port, () => console.log(`Listening on ${port}...`));

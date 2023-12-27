@@ -1,5 +1,5 @@
 {
-  "app": "bun bin/infra.ts",
+  "app": "ts-node bin/infra.ts",
   "watch": {
     "include": [
       "**"

@@ -1,0 +1,45 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model PublicStash {
+  id          String @id
+  name        String
+  accountName String
+  league      String
+
+  items ItemListing[]
+}
+
+model ItemListing {
+  id          String       @id
+  PublicStash PublicStash? @relation(fields: [stashId], references: [id], onDelete: Cascade)
+  stashId     String
+  league      String
+
+  name          String
+  typeLine      String
+  baseType      String
+  itemLevel     Int
+  category      String
+  subcategories String
+  priceValue    Int
+  priceUnit     String
+
+  @@index([name, league])
+  @@index([category, league])
+}
+
+model AppState {
+  key   String @id
+  value String
+}

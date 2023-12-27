@@ -1,10 +1,9 @@
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
-import { AttributeType, Billing, TableV2 } from "aws-cdk-lib/aws-dynamodb";
 import { Repository } from "aws-cdk-lib/aws-ecr";
-import { Effect, PolicyStatement } from "aws-cdk-lib/aws-iam";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import {
+  IVpc,
   Peer,
   Port,
   SecurityGroup,
@@ -19,80 +18,118 @@ import {
   FargateTaskDefinition,
   LogDriver,
   OperatingSystemFamily,
+  Secret,
 } from "aws-cdk-lib/aws-ecs";
+import {
+  AuroraMysqlEngineVersion,
+  ClusterInstance,
+  Credentials,
+  DatabaseCluster,
+  DatabaseClusterEngine,
+  DatabaseSecret,
+} from "aws-cdk-lib/aws-rds";
+import {
+  ARecord,
+  HostedZone,
+  IHostedZone,
+  RecordTarget,
+} from "aws-cdk-lib/aws-route53";
+import {
+  ApplicationLoadBalancer,
+  ApplicationProtocol,
+  ListenerAction,
+  Protocol,
+} from "aws-cdk-lib/aws-elasticloadbalancingv2";
+import { LoadBalancerTarget } from "aws-cdk-lib/aws-route53-targets";
+import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
+import { Duration } from "aws-cdk-lib";
+
+const HOSTED_ZONE_PROPS = {
+  hostedZoneId: "Z00479621N6MBUR4DJCZM",
+  zoneName: "mirroredpoe.trade",
+};
+const VPC_ID = "vpc-0a33f19ac08c32737";
 
 export class MirroredPoeTradeStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
+    const vpc = Vpc.fromLookup(this, "Vpc", {
+      vpcId: VPC_ID,
+    });
+    const hostedZone = HostedZone.fromHostedZoneAttributes(
+      this,
+      "HostedZone",
+      HOSTED_ZONE_PROPS,
+    );
 
     const tableName = "MirroredPoeTradeV2";
-    this.setupDdb(tableName);
-    this.setupUpdater(tableName);
+    const { databaseCredentials } = this.setupRds(vpc, tableName);
+    this.setupUpdater(vpc, hostedZone, databaseCredentials);
   }
 
-  setupDdb(tableName: string) {
-    new TableV2(this, "ddb", {
-      tableName,
-      partitionKey: {
-        name: "pk",
-        type: AttributeType.STRING,
+  setupRds(vpc: IVpc, databaseName: string) {
+    const password = new DatabaseSecret(this, "DBPassword", {
+      username: "admin",
+      dbname: databaseName,
+    });
+    new DatabaseCluster(this, "Rds", {
+      credentials: Credentials.fromSecret(password),
+      defaultDatabaseName: databaseName,
+      vpc,
+      vpcSubnets: {
+        subnetType: SubnetType.PUBLIC,
       },
-      sortKey: {
-        name: "sk",
-        type: AttributeType.STRING,
-      },
-      billing: Billing.onDemand(),
-      globalSecondaryIndexes: [
-        {
-          partitionKey: {
-            name: "id",
-            type: AttributeType.STRING,
-          },
-          indexName: "itemIdIndex",
-        },
-        {
-          partitionKey: {
-            name: "name",
-            type: AttributeType.STRING,
-          },
-          indexName: "itemNameIndex",
-        },
-        {
-          partitionKey: {
-            name: "itemNameAndLeague",
-            type: AttributeType.STRING,
-          },
-          indexName: "itemNameAndLeagueIndex",
-        },
-        {
-          partitionKey: {
-            name: "stash_id",
-            type: AttributeType.STRING,
-          },
-          indexName: "stashIdIndex",
-        },
-        {
-          partitionKey: {
-            name: "stash_accountName",
-            type: AttributeType.STRING,
-          },
-          indexName: "stashAccountNameIndex",
-        },
-        {
-          partitionKey: {
-            name: "stash_league",
-            type: AttributeType.STRING,
-          },
-          indexName: "stashLeagueIndex",
-        },
+      writer: ClusterInstance.serverlessV2("Writer", {
+        publiclyAccessible: true,
+      }),
+      engine: DatabaseClusterEngine.auroraMysql({
+        version: AuroraMysqlEngineVersion.VER_3_04_0,
+      }),
+      serverlessV2MinCapacity: 10,
+      serverlessV2MaxCapacity: 20,
+    });
+
+    return { databaseCredentials: password };
+  }
+
+  setupUpdater(
+    vpc: IVpc,
+    hostedZone: IHostedZone,
+    databaseCredentials: DatabaseSecret,
+  ) {
+    const { service, updaterContainer } = this.setupUpdaterService(
+      vpc,
+      databaseCredentials,
+    );
+    const { alb, httpsListener } = this.setupUpdaterLoadBalancer(vpc);
+
+    httpsListener.addTargets("Default", {
+      protocol: ApplicationProtocol.HTTP,
+      port: 8080,
+      targets: [
+        service.loadBalancerTarget({
+          containerName: updaterContainer.containerName,
+          containerPort: 8080,
+        }),
       ],
+      healthCheck: {
+        enabled: true,
+        interval: Duration.seconds(5),
+        protocol: Protocol.HTTP,
+        port: "8080",
+        path: "/",
+        timeout: Duration.seconds(2),
+      },
+    });
+
+    new ARecord(this, "UpdaterRecord", {
+      zone: hostedZone,
+      target: RecordTarget.fromAlias(new LoadBalancerTarget(alb)),
+      recordName: "updater.mirroredpoe.trade",
     });
   }
 
-  setupUpdater(tableName: string) {
-    const vpc = Vpc.fromLookup(this, "Vpc", {
-      vpcId: "vpc-07763a753c871f39b",
-    });
+  setupUpdaterService(vpc: IVpc, databaseCredentials: DatabaseSecret) {
     const repository = Repository.fromRepositoryArn(
       this,
       "AppRepo",
@@ -101,7 +138,6 @@ export class MirroredPoeTradeStack extends cdk.Stack {
 
     const cluster = new Cluster(this, "AppCluster", {
       vpc,
-      clusterName: "MirroredPoeTrade",
       enableFargateCapacityProviders: true,
     });
     const taskDefinition = new FargateTaskDefinition(
@@ -114,20 +150,16 @@ export class MirroredPoeTradeStack extends cdk.Stack {
         },
       },
     );
-    // const collectorContainer = taskDefinition.addContainer("UpdaterCollector", {
-    //   image: ContainerImage.fromRegistry(
-    //     "public.ecr.aws/aws-observability/aws-otel-collector:v0.30.0",
-    //   ),
-    //   essential: true,
-    //   logging: LogDriver.awsLogs({
-    //     streamPrefix: "/mirroedpoetrade",
-    //   }),
-    //   command: [
-    //     "--config=/etc/ecs/container-insights/otel-task-metrics-config.yaml",
-    //   ],
-    // });
+
     const updaterContainer = taskDefinition.addContainer("Updater", {
-      image: ContainerImage.fromEcrRepository(repository, "latest"),
+      image: ContainerImage.fromEcrRepository(
+        repository,
+        StringParameter.fromStringParameterName(
+          this,
+          "UpdaterVersion",
+          "/mirrored-poe-trade/updater-version",
+        ).stringValue,
+      ),
       essential: true,
       logging: LogDriver.awsLogs({
         streamPrefix: "/mirroredpoetrade",
@@ -144,71 +176,80 @@ export class MirroredPoeTradeStack extends cdk.Stack {
           "/mirrored-poe-trade/poe-client-secret",
         ).stringValue,
       },
+      secrets: {
+        DATABASE_HOST: Secret.fromSecretsManager(databaseCredentials, "host"),
+        DATABASE_USERNAME: Secret.fromSecretsManager(
+          databaseCredentials,
+          "username",
+        ),
+        DATABASE_PASSWORD: Secret.fromSecretsManager(
+          databaseCredentials,
+          "password",
+        ),
+        DATABASE_SCHEMA: Secret.fromSecretsManager(
+          databaseCredentials,
+          "dbname",
+        ),
+      },
       portMappings: [
         {
           containerPort: 8080,
         },
       ],
     });
-    // updaterContainer.addContainerDependencies({
-    //   container: collectorContainer,
-    //   condition: ContainerDependencyCondition.START,
-    // });
-    taskDefinition.addToTaskRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: [
-          "dynamodb:BatchGetItem",
-          "dynamodb:BatchWriteItem",
-          "dynamodb:Query",
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:UpdateItem",
-          "dynamodb:DeleteItem",
-        ],
-        resources: [
-          this.formatArn({
-            service: "dynamodb",
-            resource: "table",
-            resourceName: tableName,
-          }),
-          this.formatArn({
-            service: "dynamodb",
-            resource: "table",
-            resourceName: tableName + "/*",
-          }),
-        ],
-      }),
-    );
-    taskDefinition.addToTaskRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: [
-          "xray:PutTraceSegments",
-          "xray:PutTelemetryRecords",
-          "xray:GetSamplingRules",
-          "xray:GetSamplingTargets",
-          "xray:GetSamplingStatisticSummaries",
-        ],
-        resources: ["*"],
-      }),
-    );
 
     const serviceSg = new SecurityGroup(this, "AppSg", {
       vpc,
       allowAllOutbound: true,
     });
-    serviceSg.addIngressRule(Peer.anyIpv4(), Port.tcp(80));
     serviceSg.addIngressRule(Peer.anyIpv4(), Port.tcp(8080));
     const service = new FargateService(this, "AppService", {
-      serviceName: "Updater",
       cluster,
       taskDefinition,
       assignPublicIp: true,
       vpcSubnets: {
         subnetType: SubnetType.PUBLIC,
+        availabilityZones: ["eu-central-1a"],
       },
       securityGroups: [serviceSg],
+      circuitBreaker: {
+        rollback: true,
+      },
     });
+
+    return { service, updaterContainer };
+  }
+  setupUpdaterLoadBalancer(vpc: IVpc) {
+    const alb = new ApplicationLoadBalancer(this, "UpdaterALB", {
+      vpc,
+      vpcSubnets: {
+        subnetType: SubnetType.PUBLIC,
+      },
+      internetFacing: true,
+    });
+
+    const httpListener = alb.addListener("HttpListener", {
+      protocol: ApplicationProtocol.HTTP,
+      port: 80,
+      defaultAction: ListenerAction.redirect({
+        protocol: "HTTPS",
+        port: "443",
+        permanent: true,
+      }),
+    });
+
+    const httpsListener = alb.addListener("HttpsListener", {
+      protocol: ApplicationProtocol.HTTPS,
+      port: 443,
+      certificates: [
+        Certificate.fromCertificateArn(
+          this,
+          "ALBCertificate",
+          "arn:aws:acm:eu-central-1:032544014746:certificate/4c03e0c3-a0b5-412c-b9f4-181e21ba27ef",
+        ),
+      ],
+    });
+
+    return { alb, httpsListener };
   }
 }
