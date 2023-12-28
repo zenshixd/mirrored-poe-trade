@@ -4,6 +4,7 @@ import { chunkify } from "./utils/chunkify";
 import { toItemListing } from "./db/item-listing.utils.ts";
 import { getNextChangeId, setNextChangeId } from "./db/next-change.utils.ts";
 import { prisma } from "./db/db.ts";
+import { PrismaPromise } from "./generated/client";
 
 let nextChangeId = await getNextChangeId();
 
@@ -34,57 +35,71 @@ interface BatchItemDropItems {
   itemIds: string[];
 }
 
-async function prismaBatch(batch: BatchItem[]): Promise<any> {
-  return await Promise.all(
-    batch.map((item) => {
-      if (item.type === "createStash") {
-        console.log(`pushing stash ${item.stash.id}`);
-        return prisma.publicStash.create({
-          data: {
-            id: item.stash.id!,
-            name: item.stash.stash ?? "<no stash name>",
-            accountName: item.stash.accountName ?? "<unknown account>",
-            league: item.stash.league!,
-            items: {
-              createMany: {
-                data: item.stash.items.map((stashItem) => {
-                  const { stashId, ...itemListing } = toItemListing(
-                    item.stash,
-                    stashItem,
-                  );
+function prismaBatch(batch: BatchItem[]): PrismaPromise<any>[] {
+  let createStashCount = 0;
+  let updateItemCount = 0;
+  let dropItemsCount = 0;
+  let deleteStashCount = 0;
 
-                  return itemListing;
-                }),
-              },
+  const prismaPromises = batch.map((item) => {
+    if (item.type === "createStash") {
+      createStashCount++;
+      return prisma.publicStash.create({
+        data: {
+          id: item.stash.id!,
+          name: item.stash.stash ?? "<no stash name>",
+          accountName: item.stash.accountName ?? "<unknown account>",
+          league: item.stash.league!,
+          items: {
+            createMany: {
+              data: item.stash.items.map((stashItem) => {
+                const { stashId, ...itemListing } = toItemListing(
+                  item.stash,
+                  stashItem,
+                );
+
+                return itemListing;
+              }),
             },
           },
-        });
-      } else if (item.type === "update") {
-        return prisma.itemListing.upsert({
-          create: item.data,
-          update: item.data,
-          where: {
-            id: item.data.id,
+        },
+      });
+    } else if (item.type === "update") {
+      updateItemCount++;
+      return prisma.itemListing.upsert({
+        create: item.data,
+        update: item.data,
+        where: {
+          id: item.data.id,
+        },
+      });
+    } else if (item.type === "delete") {
+      deleteStashCount++;
+      return prisma.publicStash.delete({
+        where: {
+          id: item.stashId,
+        },
+      });
+    } else if (item.type === "dropItems") {
+      dropItemsCount++;
+      return prisma.itemListing.deleteMany({
+        where: {
+          stashId: item.stashId,
+          id: {
+            notIn: item.itemIds,
           },
-        });
-      } else if (item.type === "delete") {
-        return prisma.publicStash.delete({
-          where: {
-            id: item.stashId,
-          },
-        });
-      } else if (item.type === "dropItems") {
-        return prisma.itemListing.deleteMany({
-          where: {
-            stashId: item.stashId,
-            id: {
-              notIn: item.itemIds,
-            },
-          },
-        });
-      }
-    }),
+        },
+      });
+    } else {
+      throw new Error(`Unknown batchItem type ${(item as any).type}`);
+    }
+  });
+
+  console.log(
+    `createStash: ${createStashCount}, updateItem: ${updateItemCount}, dropItems: ${dropItemsCount}, deleteStash: ${deleteStashCount}`,
   );
+
+  return prismaPromises;
 }
 
 async function updateDb(token: string) {
@@ -158,28 +173,9 @@ async function updateDb(token: string) {
   if (Object.keys(batchItems).length > 0) {
     let itemsCreated = 0;
     let itemsDeleted = 0;
-    console.log(`Executing ${batchItems.length} batches...`);
+    console.log(`Executing ${batchItems.length} batch items ...`);
 
-    let batchN = 1;
-    for (let batch of chunkify(Object.values(batchItems), 25)) {
-      batch.forEach((item) => {
-        if (item.type == "update") {
-          itemsCreated++;
-        } else if (item.type === "delete") {
-          itemsDeleted++;
-        }
-      });
-      console.log(`[batch #${batchN}] Starting batch ...`);
-      try {
-        const response = await prismaBatch(batch);
-        console.log(`[batch #${batchN}] Batch completed.`);
-        batchN++;
-      } catch (e) {
-        debugger;
-        console.error(`[batch #${batchN}] Batch failed!`);
-        throw e;
-      }
-    }
+    await prisma.$transaction(prismaBatch(batchItems));
 
     console.log(
       `Added/updated ${itemsCreated} items and deleted ${itemsDeleted}!`,

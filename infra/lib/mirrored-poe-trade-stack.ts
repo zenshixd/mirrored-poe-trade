@@ -206,6 +206,9 @@ export class MirroredPoeTradeStack extends cdk.Stack {
     const service = new FargateService(this, "AppService", {
       cluster,
       taskDefinition,
+      desiredCount: 1,
+      minHealthyPercent: 0,
+      maxHealthyPercent: 100,
       assignPublicIp: true,
       vpcSubnets: {
         subnetType: SubnetType.PUBLIC,
