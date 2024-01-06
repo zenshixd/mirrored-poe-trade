@@ -1,10 +1,11 @@
 import { ItemListing } from "@prisma/client";
-import { authorize, getPublicStashes, PublicStashChange } from "./poe-api";
-import { chunkify } from "./utils/chunkify";
+import { getPublicStashesFromS3, PublicStashChange } from "./poe-api";
 import { toItemListing } from "./db/item-listing.utils.ts";
 import { getNextChangeId, setNextChangeId } from "./db/next-change.utils.ts";
-import { prisma } from "./db/db.ts";
+import { mysqlReplaceMany, prisma } from "./db/db.ts";
 import { PrismaPromise } from "./generated/client";
+import { elapsed } from "./utils/elapsed.ts";
+import { repeatUntil } from "./utils/repeatUntil.ts";
 
 let nextChangeId = await getNextChangeId();
 
@@ -12,11 +13,17 @@ type BatchItem =
   | BatchItemCreateStash
   | BatchItemDeleteStash
   | BatchItemUpdate
+  | BatchItemUpdateMany
   | BatchItemDropItems;
 
 export interface BatchItemUpdate {
   type: "update";
   data: ItemListing;
+}
+
+export interface BatchItemUpdateMany {
+  type: "updateMany";
+  data: ItemListing[];
 }
 
 interface BatchItemCreateStash {
@@ -32,12 +39,14 @@ interface BatchItemDeleteStash {
 interface BatchItemDropItems {
   type: "dropItems";
   stashId: string;
-  itemIds: string[];
+  notIn: string[];
 }
 
 function prismaBatch(batch: BatchItem[]): PrismaPromise<any>[] {
   let createStashCount = 0;
+  let createStashItemsCount = 0;
   let updateItemCount = 0;
+  let updateManyCount = 0;
   let dropItemsCount = 0;
   let deleteStashCount = 0;
 
@@ -53,6 +62,7 @@ function prismaBatch(batch: BatchItem[]): PrismaPromise<any>[] {
           items: {
             createMany: {
               data: item.stash.items.map((stashItem) => {
+                createStashItemsCount++;
                 const { stashId, ...itemListing } = toItemListing(
                   item.stash,
                   stashItem,
@@ -73,6 +83,9 @@ function prismaBatch(batch: BatchItem[]): PrismaPromise<any>[] {
           id: item.data.id,
         },
       });
+    } else if (item.type === "updateMany") {
+      updateManyCount++;
+      return mysqlReplaceMany(item.data);
     } else if (item.type === "delete") {
       deleteStashCount++;
       return prisma.publicStash.delete({
@@ -86,7 +99,7 @@ function prismaBatch(batch: BatchItem[]): PrismaPromise<any>[] {
         where: {
           stashId: item.stashId,
           id: {
-            notIn: item.itemIds,
+            notIn: item.notIn,
           },
         },
       });
@@ -96,23 +109,31 @@ function prismaBatch(batch: BatchItem[]): PrismaPromise<any>[] {
   });
 
   console.log(
-    `createStash: ${createStashCount}, updateItem: ${updateItemCount}, dropItems: ${dropItemsCount}, deleteStash: ${deleteStashCount}`,
+    `createStash: ${createStashCount} (items: ${createStashItemsCount}), updateItem: ${updateItemCount}, updateMany: ${updateManyCount}, dropItems: ${dropItemsCount}, deleteStash: ${deleteStashCount}`,
   );
 
   return prismaPromises;
 }
 
-async function updateDb(token: string) {
+async function updateDb() {
+  const startTime = process.hrtime.bigint();
   console.log(`Request public stashes for next_change_id=${nextChangeId}...`);
-  const { stashes, next_change_id } = await getPublicStashes(
-    token,
-    nextChangeId,
-  );
+  const { stashes, next_change_id } =
+    await getPublicStashesFromS3(nextChangeId);
+
+  if (stashes.length === 0) {
+    console.log(
+      "Found nuffin! Waiting for scrapper to get latest stash change.",
+    );
+    await Bun.sleep(1000);
+    return;
+  }
   const batchItems: BatchItem[] = [];
-  console.log(`Found ${stashes.length} public stashes!`);
+  console.log(
+    `Found ${stashes.length} public stashes! Took ${elapsed(startTime)}ms`,
+  );
 
   console.log(`[stashes] Querying changed stashes...`);
-  const startTime = process.hrtime.bigint();
   const stashIds = stashes.map((stash) => stash.id);
   const dbStashes = await prisma.publicStash.findMany({
     where: {
@@ -124,9 +145,10 @@ async function updateDb(token: string) {
       id: "asc",
     },
   });
-  const queryTime = (process.hrtime.bigint() - startTime) / 1_000_000n;
   console.log(
-    `[stashes] Querying complete! Took ${queryTime}ms and found ${dbStashes.length} stashes!`,
+    `[stashes] Querying complete! Took ${elapsed(startTime)}ms and found ${
+      dbStashes.length
+    } stashes!`,
   );
 
   for (const stash of stashes) {
@@ -153,38 +175,34 @@ async function updateDb(token: string) {
     if (dbStash && stash.public) {
       // add items that need to be created
       const itemIds: string[] = [];
-      stash.items.forEach((item) => {
-        batchItems.push({
-          type: "update",
-          data: toItemListing(stash, item),
-        });
+      const itemListings = stash.items.map((item) => {
         itemIds.push(item.id!);
+        return toItemListing(stash, item);
       });
 
+      if (itemListings.length > 0) {
+        batchItems.push({
+          type: "updateMany",
+          data: itemListings,
+        });
+      }
       // drop all items beside specified
       batchItems.push({
         type: "dropItems",
         stashId: stash.id,
-        itemIds,
+        notIn: itemIds,
       });
     }
   }
 
   if (Object.keys(batchItems).length > 0) {
-    let itemsCreated = 0;
-    let itemsDeleted = 0;
     console.log(`Executing ${batchItems.length} batch items ...`);
 
     await prisma.$transaction(prismaBatch(batchItems));
-
-    console.log(
-      `Added/updated ${itemsCreated} items and deleted ${itemsDeleted}!`,
-    );
   }
 
-  const completeTime = (process.hrtime.bigint() - startTime) / 1_000_000n;
   console.log(
-    `Processing ${stashes.length} stashes done in ${completeTime}ms!`,
+    `Processing ${stashes.length} stashes done in ${elapsed(startTime)}ms!`,
   );
   nextChangeId = next_change_id;
   console.log("Saving next_change_id:", nextChangeId);
@@ -192,8 +210,6 @@ async function updateDb(token: string) {
 }
 
 async function run() {
-  const token = await authorize();
-
   Bun.serve({
     fetch() {
       return new Response("pong", {
@@ -203,12 +219,18 @@ async function run() {
     port: 8080,
   });
 
-  const scheduleStashLoading = async () => {
-    await updateDb(token);
-    setTimeout(() => scheduleStashLoading(), 1_000);
-  };
-
-  await scheduleStashLoading();
+  repeatUntil(
+    () => true,
+    async () => {
+      try {
+        await updateDb();
+      } catch (err) {
+        console.error("Couldnt update DB !");
+        console.error(err);
+      }
+    },
+    0,
+  );
 }
 
 await run();

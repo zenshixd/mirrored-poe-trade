@@ -12,5 +12,9 @@
   "workspaces": [
     "infra",
     "trade-api"
-  ]
+  ],
+  "dependencies": {
+    "@aws-sdk/client-ecs": "^3.484.0",
+    "@aws-sdk/client-s3": "^3.484.0"
+  }
 }

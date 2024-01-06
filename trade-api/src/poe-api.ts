@@ -1,3 +1,5 @@
+import { NoSuchKey, S3 } from "@aws-sdk/client-s3";
+
 export async function authorize() {
   const { poe_client_id, poe_client_secret } = process.env;
 
@@ -232,6 +234,32 @@ export async function getPublicStashes(
   }
 
   return response.json<PublicStashResponse>();
+}
+
+const s3 = new S3();
+export const BUCKET_NAME = "mirrored-poe-trade-public-stashes";
+export const publicStashFilename = (nextChangeId: string | undefined) =>
+  `public-stash-${nextChangeId}.json`;
+
+export async function getPublicStashesFromS3(
+  nextChangeId?: string,
+): Promise<PublicStashResponse> {
+  try {
+    const obj = await s3.getObject({
+      Bucket: BUCKET_NAME,
+      Key: publicStashFilename(nextChangeId),
+    });
+
+    const body = (await JSON.parse(
+      (await obj.Body?.transformToString()) ?? "",
+    )) as PublicStashResponse;
+    return body;
+  } catch (e) {
+    if (e instanceof NoSuchKey) {
+      return { stashes: [], next_change_id: "" };
+    }
+    throw e;
+  }
 }
 
 export function parseNote(note?: string): {

@@ -13,7 +13,9 @@ NEW_ECR_IMAGE="032544014746.dkr.ecr.eu-central-1.amazonaws.com/mirrored-poe-trad
 docker tag mirrored-poe-trade:latest "$NEW_ECR_IMAGE"
 docker push "$NEW_ECR_IMAGE"
 
-aws ssm put-parameter --overwrite --name /mirrored-poe-trade/updater-version --value $VERSION --type String --region eu-central-1
+aws ssm put-parameter --overwrite --name /mirrored-poe-trade/version --value "$VERSION" --type String --region eu-central-1
+
+bun tools/update-ecs.ts "$NEW_ECR_IMAGE"
 #aws ecs update-service --cluster "MirroredPoeTrade" --service "Updater" --force-new-deployment --region eu-central-1
 #echo Waiting until Updater is stable ...
 #aws ecs wait services-stable --cluster "MirroredPoeTrade" --services "Updater" --region eu-central-1

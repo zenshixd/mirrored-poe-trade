@@ -8,7 +8,7 @@ RUN apt-get update -qq \
     && apt-get clean
 
 COPY tools/docker-entrypoint.sh /usr/local/bin
-COPY tools/bun-custom /usr/local/bin/bun
+COPY tools/bun /usr/local/bin/bun
 
 RUN groupadd bun \
       --gid 1000 \
@@ -26,6 +26,7 @@ WORKDIR /home/bun/app
 
 COPY package.json .
 COPY dist/updater.js .
+COPY dist/scrapper.js .
 COPY prisma/ prisma/
 COPY src/generated/client/libquery_engine-debian-openssl-3.0.x.so.node src/generated/client/
 

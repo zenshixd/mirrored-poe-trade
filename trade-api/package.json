@@ -1,11 +1,13 @@
 {
   "name": "@mirrored-poe-trade/trade-api",
-  "version": "0.0.93",
+  "version": "0.0.122",
   "module": "src/updater.ts",
   "type": "module",
   "scripts": {
     "start": "bun run src/updater.ts",
-    "build": "bun build src/updater.ts --outfile=dist/updater.js --target=bun",
+    "build:updater": "bun build src/updater.ts --outfile=dist/updater.js --target=bun",
+    "build:scrapper": "bun build src/scrapper.ts --outfile=dist/scrapper.js --target=bun",
+    "build": "bun run build:updater && bun run build:scrapper",
     "push": "./tools/docker-push.sh"
   },
   "devDependencies": {

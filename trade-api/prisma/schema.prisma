@@ -35,11 +35,17 @@ model ItemListing {
   priceValue    Int
   priceUnit     String
 
-  @@index([name, league])
-  @@index([category, league])
+  @@index([league, name])
+  @@index([league, category])
 }
 
 model AppState {
   key   String @id
   value String
+}
+
+model PublicStashChange {
+  index        Int    @id
+  changeId     String @unique
+  nextChangeId String
 }
