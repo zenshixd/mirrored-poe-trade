@@ -3,8 +3,9 @@
   "module": "index.ts",
   "type": "module",
   "devDependencies": {
-    "bun-types": "1.0.13",
-    "prettier": "^3.0.3"
+    "bun-types": "latest",
+    "prettier": "^3.0.3",
+    "ts-node": "^10.9.2"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
@@ -13,8 +14,5 @@
     "infra",
     "trade-api"
   ],
-  "dependencies": {
-    "@aws-sdk/client-ecs": "^3.484.0",
-    "@aws-sdk/client-s3": "^3.484.0"
-  }
+  "version": {}
 }

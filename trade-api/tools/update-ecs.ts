@@ -93,6 +93,3 @@ async function updateService(serviceName: string, taskDefName: string) {
   });
   console.log(`Service ${serviceName} update complete!`);
 }
-
-await updateService(SCRAPPER_SERVICE_NAME, SCRAPPER_TASK_DEF_NAME);
-await updateService(UPDATER_SERVICE_NAME, UPDATER_TASK_DEF_NAME);

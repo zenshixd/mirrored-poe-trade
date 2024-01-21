@@ -26,7 +26,7 @@ export async function authorize() {
     throw new Error("Authorization request failed! " + (await response.text()));
   }
 
-  const { access_token } = await response.json();
+  const { access_token } = (await response.json()) as any;
 
   return access_token;
 }
@@ -233,7 +233,7 @@ export async function getPublicStashes(
     throw new Error("Authorization request failed! " + (await response.text()));
   }
 
-  return response.json<PublicStashResponse>();
+  return (await response.json()) as PublicStashResponse;
 }
 
 const s3 = new S3();

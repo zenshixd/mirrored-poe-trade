@@ -3,12 +3,12 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../src/generated/client"
+  output   = "../../src/generated/client-mpt"
 }
 
 datasource db {
   provider = "mysql"
-  url      = env("DATABASE_URL")
+  url      = env("MPT_DB_URL")
 }
 
 model PublicStash {
@@ -16,15 +16,20 @@ model PublicStash {
   name        String
   accountName String
   league      String
+}
 
-  items ItemListing[]
+model League {
+  id               Int     @id @default(autoincrement())
+  name             String  @unique
+  isStandardLeague Boolean
+  isPrivateLeague  Boolean
+  isEventLeague    Boolean
 }
 
 model ItemListing {
-  id          String       @id
-  PublicStash PublicStash? @relation(fields: [stashId], references: [id], onDelete: Cascade)
-  stashId     String
-  league      String
+  id       String @id
+  stashId  String
+  leagueId Int
 
   name          String
   typeLine      String
@@ -34,18 +39,9 @@ model ItemListing {
   subcategories String
   priceValue    Int
   priceUnit     String
-
-  @@index([league, name])
-  @@index([league, category])
 }
 
 model AppState {
   key   String @id
   value String
-}
-
-model PublicStashChange {
-  index        Int    @id
-  changeId     String @unique
-  nextChangeId String
 }

@@ -1,0 +1,19 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../src/generated/client-scrapper"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("SCRAPPER_DB_URL")
+}
+
+model PublicStashChange {
+  index         Int    @id
+  stashChangeId String @unique
+  data          Json
+  nextChangeId  String
+}

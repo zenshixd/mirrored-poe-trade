@@ -3,17 +3,22 @@ export function repeatUntil(
   fn: () => Promise<any>,
   repeatDelay: number,
 ) {
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
   const runner = async () => {
     try {
       await fn();
     } catch (e) {
-      console.error(e);
+      reject(e);
     }
 
     if (condition()) {
       setTimeout(runner, repeatDelay);
+    } else {
+      resolve();
     }
   };
 
   runner();
+
+  return promise;
 }

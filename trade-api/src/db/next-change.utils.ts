@@ -1,9 +1,9 @@
-import { prisma } from "./db.ts";
+import { mptPrisma } from "./db.ts";
 
 const NEXT_CHANGE_PK = "NextChangeId";
 
 export async function getNextChangeId(): Promise<string | undefined> {
-  const result = await prisma.appState.findUnique({
+  const result = await mptPrisma.appState.findUnique({
     where: {
       key: NEXT_CHANGE_PK,
     },
@@ -14,7 +14,7 @@ export async function getNextChangeId(): Promise<string | undefined> {
 }
 
 export async function setNextChangeId(nextChangeId: string): Promise<void> {
-  await prisma.appState.upsert({
+  await mptPrisma.appState.upsert({
     create: {
       key: NEXT_CHANGE_PK,
       value: nextChangeId,

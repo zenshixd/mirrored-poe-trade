@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chunkify } from "../utils/chunkify.ts";
 import { parallelize } from "../utils/parallelize.ts";
 import { PublicStashChange } from "../poe-api.ts";
-import { prisma } from "../db/db.ts";
+import { mptPrisma } from "../db/db.ts";
 
 const stashes = (await Bun.file(
   import.meta.dir + "/stashes.json",
@@ -15,7 +15,7 @@ test.skip("parallel", async () => {
     const startTime = process.hrtime.bigint();
     let itemCount = 0;
     await parallelize(stashesChunk, async (stash) => {
-      const Items = await prisma.itemListing.findMany({
+      const Items = await mptPrisma.itemListing.findMany({
         where: {
           stashId: stash.id,
         },
@@ -36,7 +36,7 @@ test("all at once", async () => {
   console.log(`Querying changed stash...`);
   const startTime = process.hrtime.bigint();
   const stashIds = stashes.map((stash) => stash.id);
-  const Items = await prisma.itemListing.findMany({
+  const Items = await mptPrisma.itemListing.findMany({
     where: {
       stashId: {
         in: stashIds,

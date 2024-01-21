@@ -1,11 +1,11 @@
-import { ItemListing } from "@prisma/client";
-import { getPublicStashesFromS3, PublicStashChange } from "./poe-api";
-import { toItemListing } from "./db/item-listing.utils.ts";
+import { PublicStashChange, PublicStashResponse } from "./poe-api";
+import { isStandardLeague, toItemListing } from "./db/item-listing.utils.ts";
 import { getNextChangeId, setNextChangeId } from "./db/next-change.utils.ts";
-import { mysqlReplaceMany, prisma } from "./db/db.ts";
-import { PrismaPromise } from "./generated/client";
+import { mptPrisma, scrapperPrisma } from "./db/db.ts";
+import { ItemListing, PrismaPromise } from "./generated/client-mpt";
 import { elapsed } from "./utils/elapsed.ts";
 import { repeatUntil } from "./utils/repeatUntil.ts";
+import { mysqlReplaceMany } from "./db/mysql-replace-many.ts";
 
 let nextChangeId = await getNextChangeId();
 
@@ -29,6 +29,7 @@ export interface BatchItemUpdateMany {
 interface BatchItemCreateStash {
   type: "createStash";
   stash: PublicStashChange;
+  items: ItemListing[];
 }
 
 interface BatchItemDeleteStash {
@@ -50,63 +51,66 @@ function prismaBatch(batch: BatchItem[]): PrismaPromise<any>[] {
   let dropItemsCount = 0;
   let deleteStashCount = 0;
 
-  const prismaPromises = batch.map((item) => {
+  const prismaPromises = batch.reduce((prismaBatchArr, item) => {
     if (item.type === "createStash") {
       createStashCount++;
-      return prisma.publicStash.create({
-        data: {
-          id: item.stash.id!,
-          name: item.stash.stash ?? "<no stash name>",
-          accountName: item.stash.accountName ?? "<unknown account>",
-          league: item.stash.league!,
-          items: {
-            createMany: {
-              data: item.stash.items.map((stashItem) => {
-                createStashItemsCount++;
-                const { stashId, ...itemListing } = toItemListing(
-                  item.stash,
-                  stashItem,
-                );
-
-                return itemListing;
-              }),
-            },
+      createStashItemsCount += item.items.length;
+      prismaBatchArr.push(
+        mptPrisma.publicStash.create({
+          data: {
+            id: item.stash.id!,
+            name: item.stash.stash ?? "<no stash name>",
+            accountName: item.stash.accountName ?? "<unknown account>",
+            league: item.stash.league!,
           },
-        },
-      });
+        }),
+      );
+      prismaBatchArr.push(
+        mptPrisma.itemListing.createMany({
+          data: item.items,
+        }),
+      );
     } else if (item.type === "update") {
       updateItemCount++;
-      return prisma.itemListing.upsert({
-        create: item.data,
-        update: item.data,
-        where: {
-          id: item.data.id,
-        },
-      });
+      prismaBatchArr.push(
+        mptPrisma.itemListing.upsert({
+          create: item.data,
+          update: item.data,
+          where: {
+            id: item.data.id,
+          },
+        }),
+      );
     } else if (item.type === "updateMany") {
       updateManyCount++;
-      return mysqlReplaceMany(item.data);
+      prismaBatchArr.push(mysqlReplaceMany(mptPrisma, item.data));
     } else if (item.type === "delete") {
       deleteStashCount++;
-      return prisma.publicStash.delete({
-        where: {
-          id: item.stashId,
-        },
-      });
+      prismaBatchArr.push(
+        mptPrisma.publicStash.delete({
+          where: {
+            id: item.stashId,
+          },
+        }),
+      );
     } else if (item.type === "dropItems") {
       dropItemsCount++;
-      return prisma.itemListing.deleteMany({
-        where: {
-          stashId: item.stashId,
-          id: {
-            notIn: item.notIn,
+      prismaBatchArr.push(
+        mptPrisma.itemListing.deleteMany({
+          where: {
+            stashId: item.stashId,
+            id: {
+              notIn: item.notIn,
+            },
           },
-        },
-      });
+        }),
+      );
     } else {
       throw new Error(`Unknown batchItem type ${(item as any).type}`);
     }
-  });
+
+    return prismaBatchArr;
+  }, [] as PrismaPromise<any>[]);
 
   console.log(
     `createStash: ${createStashCount} (items: ${createStashItemsCount}), updateItem: ${updateItemCount}, updateMany: ${updateManyCount}, dropItems: ${dropItemsCount}, deleteStash: ${deleteStashCount}`,
@@ -118,8 +122,21 @@ function prismaBatch(batch: BatchItem[]): PrismaPromise<any>[] {
 async function updateDb() {
   const startTime = process.hrtime.bigint();
   console.log(`Request public stashes for next_change_id=${nextChangeId}...`);
+  const result = await scrapperPrisma.publicStashChange.findUnique({
+    where: {
+      stashChangeId: nextChangeId ?? "undefined",
+    },
+  });
+
+  if (!result) {
+    console.log(
+      `Couldnt find stash change with id ${nextChangeId}! Seems there are holes in data?`,
+    );
+    return;
+  }
+
   const { stashes, next_change_id } =
-    await getPublicStashesFromS3(nextChangeId);
+    result.data as unknown as PublicStashResponse;
 
   if (stashes.length === 0) {
     console.log(
@@ -135,7 +152,7 @@ async function updateDb() {
 
   console.log(`[stashes] Querying changed stashes...`);
   const stashIds = stashes.map((stash) => stash.id);
-  const dbStashes = await prisma.publicStash.findMany({
+  const dbStashes = await mptPrisma.publicStash.findMany({
     where: {
       id: {
         in: stashIds,
@@ -166,19 +183,39 @@ async function updateDb() {
     if (!dbStash && stash.public) {
       // we havent indexed this stash tab
       // just put everything in
+
+      const itemListings = await stash.items.reduce(
+        async (arrPromise, item) => {
+          const arr = await arrPromise;
+
+          arr.push(await toItemListing(stash, item));
+
+          return arr;
+        },
+        Promise.resolve([] as ItemListing[]),
+      );
+
       batchItems.push({
         type: "createStash",
         stash: stash,
+        items: itemListings,
       });
     }
 
     if (dbStash && stash.public) {
       // add items that need to be created
       const itemIds: string[] = [];
-      const itemListings = stash.items.map((item) => {
-        itemIds.push(item.id!);
-        return toItemListing(stash, item);
-      });
+      const itemListings = await stash.items.reduce(
+        async (arrPromise, item) => {
+          const arr = await arrPromise;
+
+          itemIds.push(item.id!);
+          arr.push(await toItemListing(stash, item));
+
+          return arr;
+        },
+        Promise.resolve([] as ItemListing[]),
+      );
 
       if (itemListings.length > 0) {
         batchItems.push({
@@ -198,7 +235,7 @@ async function updateDb() {
   if (Object.keys(batchItems).length > 0) {
     console.log(`Executing ${batchItems.length} batch items ...`);
 
-    await prisma.$transaction(prismaBatch(batchItems));
+    await mptPrisma.$transaction(prismaBatch(batchItems));
   }
 
   console.log(

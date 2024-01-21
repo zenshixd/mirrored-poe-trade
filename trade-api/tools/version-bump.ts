@@ -1,9 +1,8 @@
-async function bump() {
-  const args = process.argv.slice(2);
-  const pckgJson = await Bun.file(import.meta.dir + "/../package.json").json();
+export async function versionBump(bumpType: string) {
+  const pckgJson = await Bun.file("./package.json").json();
   const [major, minor, patch] = pckgJson.version.split(".").map(Number);
 
-  switch (args[0]) {
+  switch (bumpType) {
     case "patch":
       return [major, minor, patch + 1].join(".");
     case "minor":
@@ -16,5 +15,3 @@ async function bump() {
       );
   }
 }
-
-console.log(await bump());

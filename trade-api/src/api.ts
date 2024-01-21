@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { prisma } from "./db/db.ts";
+import { mptPrisma } from "./db/db.ts";
 
 const port = process.env.PORT || 8000;
 new Elysia()
@@ -15,7 +15,7 @@ new Elysia()
       };
     }
 
-    const result = await prisma.itemListing.findMany({
+    const result = await mptPrisma.itemListing.findMany({
       where: {
         name,
         league,

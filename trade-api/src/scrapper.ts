@@ -1,15 +1,9 @@
-import { S3 } from "@aws-sdk/client-s3";
-import {
-  authorize,
-  BUCKET_NAME,
-  getPublicStashes,
-  publicStashFilename,
-} from "./poe-api.ts";
+import { authorize, getPublicStashes } from "./poe-api.ts";
 import { elapsed } from "./utils/elapsed.ts";
 import { repeatUntil } from "./utils/repeatUntil.ts";
-import { prisma } from "./db/db.ts";
-
-const s3 = new S3();
+import { scrapperPrisma } from "./db/db.ts";
+import { Prisma } from "./generated/client-scrapper";
+import InputJsonValue = Prisma.InputJsonValue;
 
 let queuePromise = Promise.resolve();
 
@@ -20,7 +14,12 @@ async function validateIntegrity(): Promise<{
   const missingStashChangesIds = [];
 
   let cursor = 0;
-  let previousStashChange = await prisma.publicStashChange.findFirst({
+  let previousStashChange = await scrapperPrisma.publicStashChange.findFirst({
+    select: {
+      index: true,
+      stashChangeId: true,
+      nextChangeId: true,
+    },
     orderBy: {
       index: "asc",
     },
@@ -34,7 +33,12 @@ async function validateIntegrity(): Promise<{
   }
 
   while (true) {
-    const list = await prisma.publicStashChange.findMany({
+    const list = await scrapperPrisma.publicStashChange.findMany({
+      select: {
+        index: true,
+        stashChangeId: true,
+        nextChangeId: true,
+      },
       take: 100,
       skip: 1,
       cursor: {
@@ -72,7 +76,7 @@ async function loadPublicStashes(
   publicStashChangeIndex: number,
   nextChangeId: string,
 ) {
-  const startTime = process.hrtime.bigint();
+  let startTime = process.hrtime.bigint();
   try {
     console.log(`[${nextChangeId}] Requesting public stashes...`);
     const result = await getPublicStashes(token, nextChangeId);
@@ -84,28 +88,43 @@ async function loadPublicStashes(
       return nextChangeId;
     }
 
-    const promise = s3.putObject({
-      Bucket: BUCKET_NAME,
-      Key: publicStashFilename(nextChangeId),
-      Body: JSON.stringify(result),
-    });
+    // const promise = s3.putObject({
+    //   Bucket: BUCKET_NAME,
+    //   Key: publicStashFilename(nextChangeId),
+    //   Body: JSON.stringify(result),
+    // });
+    //
+    // queuePromise = queuePromise
+    //   .then(() => promise)
+    //   .then(async () => {
+    //     console.log(
+    //       `[${nextChangeId}] Retrieving public stashes and putting them in S3 took ${elapsed(
+    //         startTime,
+    //       )}ms`,
+    //     );
+    //     await scrapperPrisma.publicStashChange.create({
+    //       data: {
+    //         index: publicStashChangeIndex,
+    //         stashChangeId: nextChangeId ?? "undefined",
+    //         data: result as InputJsonValue,
+    //         nextChangeId: result.next_change_id,
+    //       },
+    //     });
+    //   });
 
-    queuePromise = queuePromise
-      .then(() => promise)
-      .then(async () => {
-        console.log(
-          `[${nextChangeId}] Retrieving public stashes and putting them in S3 took ${elapsed(
-            startTime,
-          )}ms`,
-        );
-        await prisma.publicStashChange.create({
-          data: {
-            index: publicStashChangeIndex,
-            changeId: nextChangeId ?? "undefined",
-            nextChangeId: result.next_change_id,
-          },
-        });
-      });
+    startTime = process.hrtime.bigint();
+    await scrapperPrisma.publicStashChange.create({
+      data: {
+        index: publicStashChangeIndex,
+        stashChangeId: nextChangeId ?? "undefined",
+        data: result as unknown as InputJsonValue,
+        nextChangeId: result.next_change_id,
+      },
+    });
+    console.log(
+      `[${nextChangeId}] Putting data to DB took ${elapsed(startTime)}ms`,
+    );
+
     return result.next_change_id;
   } catch (err) {
     console.error(`Couldnt retrieve public stashes for id=${nextChangeId} !`);
@@ -125,7 +144,7 @@ async function scrap() {
   });
   await validateIntegrity();
 
-  let latestItem = await prisma.publicStashChange.findFirst({
+  let latestItem = await scrapperPrisma.publicStashChange.findFirst({
     orderBy: {
       index: "desc",
     },

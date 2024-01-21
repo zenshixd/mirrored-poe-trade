@@ -27,7 +27,10 @@ WORKDIR /home/bun/app
 COPY package.json .
 COPY dist/updater.js .
 COPY dist/scrapper.js .
-COPY prisma/ prisma/
-COPY src/generated/client/libquery_engine-debian-openssl-3.0.x.so.node src/generated/client/
+#COPY dist/migrater.js .
+COPY prisma/mpt/ prisma-mpt/
+COPY prisma/scrapper/ prisma-scrapper/
+COPY src/generated/client-mpt/libquery_engine-debian-openssl-3.0.x.so.node src/generated/client-mpt/
+COPY src/generated/client-scrapper/libquery_engine-debian-openssl-3.0.x.so.node src/generated/client-scrapper/
 
 CMD ["bun", "run", "updater.js"]
