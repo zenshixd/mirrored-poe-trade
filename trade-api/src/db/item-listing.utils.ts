@@ -1,5 +1,5 @@
 import { parseNote, PublicStashChange, PublicStashItem } from "../poe-api.ts";
-import { ItemListing } from "../generated/client-mpt";
+import { ItemListing, PublicStash } from "../generated/client-mpt";
 import { mptPrisma } from "./db.ts";
 
 const leaguesCache: Record<string, number> = {};
@@ -26,6 +26,17 @@ export async function getLeagueId(leagueName: string) {
   }
 
   return leaguesCache[leagueName];
+}
+
+export async function toPublicStash(
+  stash: PublicStashChange,
+): Promise<PublicStash> {
+  return {
+    id: stash.id,
+    name: stash.stash ?? "<empty>",
+    accountName: stash.accountName!,
+    leagueId: await getLeagueId(stash.league!),
+  };
 }
 
 export async function toItemListing(

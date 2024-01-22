@@ -50,8 +50,7 @@ export class AppContainers extends Construct {
     } = props;
 
     const taskDefinition = new FargateTaskDefinition(this, "TaskDefinition", {
-      cpu: 4096,
-      memoryLimitMiB: 30 * 1024,
+      memoryLimitMiB: 2048,
       runtimePlatform: {
         cpuArchitecture: CpuArchitecture.X86_64,
         operatingSystemFamily: OperatingSystemFamily.LINUX,

@@ -7,27 +7,18 @@ const ecs = new ECS({
   region: "eu-central-1",
 });
 
-const CLUSTER_NAME = "MirroredPoeTradeStack-AppCluster99B78AC1-yCT0BbUigAFO";
+const CLUSTER_NAME = "mpt-updater-AppCluster99B78AC1-5x0HReD4uZ3G";
+const TASK_DEF_NAME = "MirroredPoeTradeUpdaterContainersTaskDefinitionFE1F35E6";
 
-const SCRAPPER_SERVICE_NAME =
-  "MirroredPoeTradeStack-ScrapperService902F264B-ICnafs7nZ17o";
-const SCRAPPER_TASK_DEF_NAME =
-  "MirroredPoeTradeStackScrapperTaskDefinition74B6103D";
-
-const UPDATER_SERVICE_NAME =
-  "MirroredPoeTradeStack-UpdaterServiceF1B6C658-WAGiUNZqJlps";
-const UPDATER_TASK_DEF_NAME =
-  "MirroredPoeTradeStackUpdaterTaskDefinition10B9EFD8";
-
-async function updateService(serviceName: string, taskDefName: string) {
-  console.log(`Retrieving latest ${taskDefName} task definition ...`);
+async function updateServices() {
+  console.log(`Retrieving latest ${TASK_DEF_NAME} task definition ...`);
   const taskDef = await ecs.describeTaskDefinition({
-    taskDefinition: taskDefName,
+    taskDefinition: TASK_DEF_NAME,
     include: [TaskDefinitionField.TAGS],
   });
 
   if (!taskDef.taskDefinition) {
-    throw new Error(`Couldnt find ${taskDefName} task definition!`);
+    throw new Error(`Couldnt find ${TASK_DEF_NAME} task definition!`);
   }
 
   console.log(
@@ -57,7 +48,7 @@ async function updateService(serviceName: string, taskDefName: string) {
     taskDef.tags,
   );
   const result = await ecs.registerTaskDefinition({
-    family: taskDefName,
+    family: TASK_DEF_NAME,
     networkMode,
     memory,
     cpu,
@@ -80,16 +71,29 @@ async function updateService(serviceName: string, taskDefName: string) {
 
   if (!result.taskDefinition) {
     throw new Error(
-      `Something went wrong with registering new revision for ${taskDefName}!`,
+      `Something went wrong with registering new revision for ${TASK_DEF_NAME}!`,
     );
   }
 
-  console.log(`Updating service ${serviceName} ...`);
-  await ecs.updateService({
+  const servicesList = await ecs.listServices({
     cluster: CLUSTER_NAME,
-    service: serviceName,
-    taskDefinition: result.taskDefinition!.taskDefinitionArn,
-    forceNewDeployment: true,
   });
-  console.log(`Service ${serviceName} update complete!`);
+  const { services } = await ecs.describeServices({
+    cluster: CLUSTER_NAME,
+    services: servicesList.serviceArns,
+  });
+
+  await services?.reduce(async (promise, service) => {
+    await promise;
+    console.log(`Updating service ${service.serviceName} ...`);
+    await ecs.updateService({
+      cluster: CLUSTER_NAME,
+      service: service.serviceName,
+      taskDefinition: result.taskDefinition!.taskDefinitionArn,
+      forceNewDeployment: true,
+    });
+    console.log(`Service ${service.serviceName} update complete!`);
+  }, Promise.resolve());
 }
+
+await updateServices();

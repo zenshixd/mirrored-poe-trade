@@ -1,8 +1,17 @@
-import { PublicStashChange, PublicStashResponse } from "./poe-api";
-import { isStandardLeague, toItemListing } from "./db/item-listing.utils.ts";
+import { PublicStashResponse } from "./poe-api";
+import {
+  isPrivateLeague,
+  isStandardLeague,
+  toItemListing,
+  toPublicStash,
+} from "./db/item-listing.utils.ts";
 import { getNextChangeId, setNextChangeId } from "./db/next-change.utils.ts";
 import { mptPrisma, scrapperPrisma } from "./db/db.ts";
-import { ItemListing, PrismaPromise } from "./generated/client-mpt";
+import {
+  ItemListing,
+  PrismaPromise,
+  PublicStash,
+} from "./generated/client-mpt";
 import { elapsed } from "./utils/elapsed.ts";
 import { repeatUntil } from "./utils/repeatUntil.ts";
 import { mysqlReplaceMany } from "./db/mysql-replace-many.ts";
@@ -28,7 +37,7 @@ export interface BatchItemUpdateMany {
 
 interface BatchItemCreateStash {
   type: "createStash";
-  stash: PublicStashChange;
+  stash: PublicStash;
   items: ItemListing[];
 }
 
@@ -57,12 +66,7 @@ function prismaBatch(batch: BatchItem[]): PrismaPromise<any>[] {
       createStashItemsCount += item.items.length;
       prismaBatchArr.push(
         mptPrisma.publicStash.create({
-          data: {
-            id: item.stash.id!,
-            name: item.stash.stash ?? "<no stash name>",
-            accountName: item.stash.accountName ?? "<unknown account>",
-            league: item.stash.league!,
-          },
+          data: item.stash,
         }),
       );
       prismaBatchArr.push(
@@ -169,6 +173,11 @@ async function updateDb() {
   );
 
   for (const stash of stashes) {
+    if (isStandardLeague(stash.league!) || isPrivateLeague(stash.league!)) {
+      // skip standard and private leagues
+      continue;
+    }
+
     const dbStash = dbStashes.find((dbStash) => dbStash.id === stash.id);
     if (dbStash && !stash.public) {
       // Stash got unlisted - remove all items from db
@@ -197,7 +206,7 @@ async function updateDb() {
 
       batchItems.push({
         type: "createStash",
-        stash: stash,
+        stash: await toPublicStash(stash),
         items: itemListings,
       });
     }

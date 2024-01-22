@@ -15,21 +15,25 @@ model PublicStash {
   id          String @id
   name        String
   accountName String
-  league      String
+  league      League @relation(fields: [leagueId], references: [id])
+  leagueId    Int
 }
 
 model League {
-  id               Int     @id @default(autoincrement())
-  name             String  @unique
+  id               Int           @id @default(autoincrement())
+  name             String        @unique
   isStandardLeague Boolean
   isPrivateLeague  Boolean
   isEventLeague    Boolean
+  ItemListing      ItemListing[]
+  PublicStash      PublicStash[]
 }
 
 model ItemListing {
   id       String @id
   stashId  String
   leagueId Int
+  league   League @relation(fields: [leagueId], references: [id])
 
   name          String
   typeLine      String

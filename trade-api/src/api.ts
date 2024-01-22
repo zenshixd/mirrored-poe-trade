@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { mptPrisma } from "./db/db.ts";
+import { getLeagueId } from "./db/item-listing.utils.ts";
 
 const port = process.env.PORT || 8000;
 new Elysia()
@@ -15,10 +16,18 @@ new Elysia()
       };
     }
 
+    const leagueId = await getLeagueId(league);
+
+    if (!leagueId) {
+      return {
+        error: "unknown_league",
+      };
+    }
+
     const result = await mptPrisma.itemListing.findMany({
       where: {
         name,
-        league,
+        leagueId,
       },
     });
 
