@@ -51,7 +51,13 @@ async function validateIntegrity(): Promise<{
 
     for (let i = 0; i < list.length; i++) {
       const item = list[i];
-      if (item.index !== previousStashChange.index + 1) {
+      if (
+        item.index !== previousStashChange.index + 1 ||
+        item.stashChangeId !== previousStashChange.nextChangeId
+      ) {
+        console.log(
+          `Missing stash change between ${item.index} and ${previousStashChange.index}`,
+        );
         missingStashChangesIds.push(previousStashChange.nextChangeId);
       }
 
@@ -88,32 +94,8 @@ async function loadPublicStashes(
       return nextChangeId;
     }
 
-    // const promise = s3.putObject({
-    //   Bucket: BUCKET_NAME,
-    //   Key: publicStashFilename(nextChangeId),
-    //   Body: JSON.stringify(result),
-    // });
-    //
-    // queuePromise = queuePromise
-    //   .then(() => promise)
-    //   .then(async () => {
-    //     console.log(
-    //       `[${nextChangeId}] Retrieving public stashes and putting them in S3 took ${elapsed(
-    //         startTime,
-    //       )}ms`,
-    //     );
-    //     await scrapperPrisma.publicStashChange.create({
-    //       data: {
-    //         index: publicStashChangeIndex,
-    //         stashChangeId: nextChangeId ?? "undefined",
-    //         data: result as InputJsonValue,
-    //         nextChangeId: result.next_change_id,
-    //       },
-    //     });
-    //   });
-
     startTime = process.hrtime.bigint();
-    await scrapperPrisma.publicStashChange.create({
+    const promise = scrapperPrisma.publicStashChange.create({
       data: {
         index: publicStashChangeIndex,
         stashChangeId: nextChangeId ?? "undefined",
@@ -121,9 +103,14 @@ async function loadPublicStashes(
         nextChangeId: result.next_change_id,
       },
     });
-    console.log(
-      `[${nextChangeId}] Putting data to DB took ${elapsed(startTime)}ms`,
-    );
+
+    queuePromise = queuePromise
+      .then(() => promise)
+      .then(async () => {
+        console.log(
+          `[${nextChangeId}] Putting data to DB took ${elapsed(startTime)}ms`,
+        );
+      });
 
     return result.next_change_id;
   } catch (err) {
@@ -142,7 +129,7 @@ async function scrap() {
     },
     port: 8081,
   });
-  await validateIntegrity();
+  // await validateIntegrity();
 
   let latestItem = await scrapperPrisma.publicStashChange.findFirst({
     orderBy: {

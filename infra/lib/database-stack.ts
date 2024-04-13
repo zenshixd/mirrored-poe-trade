@@ -1,5 +1,4 @@
 import { Stack, StackProps } from "aws-cdk-lib";
-import { Construct } from "constructs";
 import {
   InstanceClass,
   InstanceSize,
@@ -10,8 +9,6 @@ import {
   SubnetType,
   Vpc,
 } from "aws-cdk-lib/aws-ec2";
-import { CustomDatabaseInstance } from "./constructs/custom-database-instance";
-import { HostedZone } from "aws-cdk-lib/aws-route53";
 import {
   AuroraMysqlEngineVersion,
   CaCertificate,
@@ -21,6 +18,9 @@ import {
   DatabaseClusterEngine,
   DatabaseSecret,
 } from "aws-cdk-lib/aws-rds";
+import { HostedZone } from "aws-cdk-lib/aws-route53";
+import { Construct } from "constructs";
+import { CustomDatabaseInstance } from "./constructs/custom-database-instance";
 
 export interface DatabaseStackProps extends StackProps {
   vpc: Vpc;

@@ -136,6 +136,7 @@ async function updateDb() {
     console.log(
       `Couldnt find stash change with id ${nextChangeId}! Seems there are holes in data?`,
     );
+    await Bun.sleep(1000);
     return;
   }
 
@@ -273,6 +274,7 @@ async function run() {
       } catch (err) {
         console.error("Couldnt update DB !");
         console.error(err);
+        await Bun.sleep(1000);
       }
     },
     0,

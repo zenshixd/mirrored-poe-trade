@@ -1,4 +1,3 @@
-import { Construct } from "constructs";
 import {
   AmazonLinuxCpuType,
   BlockDeviceVolume,
@@ -16,6 +15,7 @@ import {
   Vpc,
 } from "aws-cdk-lib/aws-ec2";
 import { ARecord, IHostedZone, RecordTarget } from "aws-cdk-lib/aws-route53";
+import { Construct } from "constructs";
 
 export interface CustomDatabaseInstanceProps {
   vpc: Vpc;

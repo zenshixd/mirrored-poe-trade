@@ -1,6 +1,6 @@
-import { Construct } from "constructs";
 import { Stack, StackProps } from "aws-cdk-lib";
 import { Repository } from "aws-cdk-lib/aws-ecr";
+import { Construct } from "constructs";
 
 export class EcrStack extends Stack {
   public repository: Repository;

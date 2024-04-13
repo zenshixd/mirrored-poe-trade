@@ -87,6 +87,7 @@ const itemName = (item: PublicStashItem) => {
     case "heistmission":
     case "logbook":
     case "monsters":
+    case "azmeri":
       return item.baseType;
     default:
       if (item.name === "") {

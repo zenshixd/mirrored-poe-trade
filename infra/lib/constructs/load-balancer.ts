@@ -1,4 +1,6 @@
-import { Construct } from "constructs";
+import { Duration } from "aws-cdk-lib";
+import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
+import { SubnetType, Vpc } from "aws-cdk-lib/aws-ec2";
 import {
   ApplicationLoadBalancer,
   ApplicationProtocol,
@@ -6,11 +8,9 @@ import {
   ListenerAction,
   Protocol,
 } from "aws-cdk-lib/aws-elasticloadbalancingv2";
-import { SubnetType, Vpc } from "aws-cdk-lib/aws-ec2";
-import { Certificate } from "aws-cdk-lib/aws-certificatemanager";
-import { Duration } from "aws-cdk-lib";
 import { ARecord, IHostedZone, RecordTarget } from "aws-cdk-lib/aws-route53";
 import { LoadBalancerTarget } from "aws-cdk-lib/aws-route53-targets";
+import { Construct } from "constructs";
 
 export interface LoadBalancerProps {
   vpc: Vpc;

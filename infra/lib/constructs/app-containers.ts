@@ -1,4 +1,11 @@
-import { Construct } from "constructs";
+import {
+  Peer,
+  Port,
+  SecurityGroup,
+  SubnetType,
+  Vpc,
+} from "aws-cdk-lib/aws-ec2";
+import { IRepository } from "aws-cdk-lib/aws-ecr";
 import {
   Cluster,
   ContainerImage,
@@ -9,17 +16,10 @@ import {
   OperatingSystemFamily,
   Secret as EcsSecret,
 } from "aws-cdk-lib/aws-ecs";
-import { StringParameter } from "aws-cdk-lib/aws-ssm";
-import {
-  Peer,
-  Port,
-  SecurityGroup,
-  SubnetType,
-  Vpc,
-} from "aws-cdk-lib/aws-ec2";
-import { IRepository } from "aws-cdk-lib/aws-ecr";
-import { ISecret } from "aws-cdk-lib/aws-secretsmanager";
 import { Effect, PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { Construct } from "constructs";
+import { StringParameter } from "aws-cdk-lib/aws-ssm";
+import { ISecret } from "aws-cdk-lib/aws-secretsmanager";
 
 export interface AppContainerProps {
   vpc: Vpc;
@@ -50,7 +50,8 @@ export class AppContainers extends Construct {
     } = props;
 
     const taskDefinition = new FargateTaskDefinition(this, "TaskDefinition", {
-      memoryLimitMiB: 2048,
+      cpu: 1024,
+      memoryLimitMiB: 4096,
       runtimePlatform: {
         cpuArchitecture: CpuArchitecture.X86_64,
         operatingSystemFamily: OperatingSystemFamily.LINUX,
@@ -86,7 +87,7 @@ export class AppContainers extends Construct {
       allowAllOutbound: true,
     });
 
-    for (let container of containers) {
+    for (const container of containers) {
       taskDefinition.addContainer(container.name, {
         image: ContainerImage.fromEcrRepository(repository, taskVersion),
         command: container.command,
@@ -94,6 +95,7 @@ export class AppContainers extends Construct {
         logging: LogDriver.awsLogs({
           streamPrefix: "/mirroredpoetrade",
         }),
+        memoryLimitMiB: 2048,
         environment: {
           poe_client_id: poeClientId,
           poe_client_secret: poeClientSecret,

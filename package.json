@@ -4,7 +4,7 @@
   "type": "module",
   "devDependencies": {
     "bun-types": "latest",
-    "prettier": "^3.0.3",
+    "prettier": "^3.2.4",
     "ts-node": "^10.9.2"
   },
   "peerDependencies": {
@@ -13,6 +13,5 @@
   "workspaces": [
     "infra",
     "trade-api"
-  ],
-  "version": {}
+  ]
 }

@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import * as cdk from "aws-cdk-lib";
-import { VpcStack } from "../lib/vpc-stack";
 import { DatabaseStack } from "../lib/database-stack";
 import { EcrStack } from "../lib/ecr-stack";
 import { UpdaterStack } from "../lib/updater-stack";
+import { VpcStack } from "../lib/vpc-stack";
 
 const ZONE_NAME = "mirroredpoe.trade";
 const HOSTED_ZONE_ID = "Z00479621N6MBUR4DJCZM";
