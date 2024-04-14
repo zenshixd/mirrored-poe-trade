@@ -1,6 +1,0 @@
-.env
-src/generated/
-dist/
-node_modules/
-test/http-client.private.env.json
-tsconfig.tsbuildinfo

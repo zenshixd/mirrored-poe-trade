@@ -1,2 +1,7 @@
 .idea/
+src/**/*.js
+src/**/*.js.map
 node_modules/
+.env
+tsconfig.tsbuildinfo
+*.db

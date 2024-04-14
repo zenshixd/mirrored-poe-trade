@@ -1,0 +1,1 @@
+ALTER TABLE publicStash ADD `itemsCount` integer NOT NULL;

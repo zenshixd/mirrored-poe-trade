@@ -1,0 +1,75 @@
+volumes:
+  db:
+    name: mpt-db
+services:
+  updater:
+    command: bun run updater.js
+    build:
+      context: .
+    environment:
+      R2_BUCKET_NAME: mpt-stashes-prod
+      poe_client_id: ${poe_client_id}
+      poe_client_secret: ${poe_client_secret}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
+      NODE_ENV: production
+    volumes:
+      - type: volume
+        source: db
+        target: /home/bun/app/db
+    logging:
+      driver: local
+  scrapper:
+    command: bun run scrapper.js
+    build:
+      context: .
+    environment:
+      R2_BUCKET_NAME: mpt-stashes-prod
+      poe_client_id: ${poe_client_id}
+      poe_client_secret: ${poe_client_secret}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_REGION: ${AWS_REGION}
+      NODE_ENV: production
+    volumes:
+      - type: volume
+        source: db
+        target: /home/bun/app/db
+    restart: always
+    logging:
+      driver: local
+  studio:
+    image: coleifer/sqlite-web
+    command: sqlite_web --host 0.0.0.0 --port=4001 /data/mpt.db
+    environment:
+      NODE_ENV: production
+    ports:
+      - 4001:4001
+    volumes:
+      - type: volume
+        source: db
+        target: /data
+    restart: always
+    logging:
+      driver: local
+  webapp:
+    build:
+      context: .
+    command: bun run api.js
+    environment:
+      PORT: 4000
+      NODE_ENV: production
+    ports:
+      - 4000:4000
+    volumes:
+      - type: volume
+        source: db
+        target: /home/bun/app/db
+    restart: always
+    logging:
+      driver: local

@@ -1,17 +1,37 @@
 {
-  "name": "mirrored-poe-trade",
-  "module": "index.ts",
-  "type": "module",
-  "devDependencies": {
-    "bun-types": "latest",
-    "prettier": "^3.2.4",
-    "ts-node": "^10.9.2"
-  },
-  "peerDependencies": {
-    "typescript": "^5.0.0"
-  },
-  "workspaces": [
-    "infra",
-    "trade-api"
-  ]
+    "name": "mirrored-poe-trade",
+    "module": "index.ts",
+    "version": "1.0.30",
+    "type": "module",
+    "scripts": {
+        "start": "bun run src/updater.ts",
+        "build:updater": "bun build src/updater.ts --outfile=src/updater.js --target=bun",
+        "build:scrapper": "bun build src/scrapper.ts --outfile=src/scrapper.js --target=bun",
+        "build:api": "bun build src/api.ts --outfile=src/api.js --target=bun",
+        "build": "conc \"bun build:updater\" \"bun build:scrapper\" \"bun build:api\"",
+        "lint": "tsc --noEmit && biome lint .",
+        "lint:fix": "biome lint --apply .",
+        "push": "bun ./tools/docker-push.ts",
+        "sql:generate": "drizzle-kit generate:sqlite"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^1.6.4",
+        "@types/bun": "^1.0.12",
+        "drizzle-kit": "^0.20.14",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "@aws-sdk/client-s3": "^3.554.0",
+        "@libsql/client": "^0.6.0",
+        "concurrently": "^8.2.2",
+        "drizzle-orm": "^0.30.8",
+        "elysia": "^1.0.13",
+        "uuidv7": "^0.6.3"
+    },
+    "trustedDependencies": [
+        "@biomejs/biome",
+        "better-sqlite3",
+        "es5-ext"
+    ]
 }
