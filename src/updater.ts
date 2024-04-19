@@ -1,32 +1,24 @@
-import { asc, eq, inArray } from "drizzle-orm";
-import { notInArray } from "drizzle-orm/sql/expressions/conditions";
+import { asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { db } from "./db";
 import { toItemListing, toPublicStash } from "./db/item-listing.utils.ts";
-import { getNextChangeId, setNextChangeId } from "./db/next-change.utils.ts";
-import { itemListing, publicStash, publicStashChange } from "./db/schema.ts";
-import { getPublicStashesFromR2 } from "./poe-api.ts";
+import { getLatestIndex, setLatestIndex } from "./db/next-change.utils.ts";
+import { itemListing, publicStash } from "./db/schema.ts";
+import { getPublicStashesFromR2 } from "./poe-api/poe-api.ts";
+import { formatStashIndex } from "./r2/utils.ts";
 import { elapsed } from "./utils/elapsed.ts";
 import { repeatUntil } from "./utils/repeatUntil.ts";
 
-let nextChangeId = await getNextChangeId();
+let latestIndex = await getLatestIndex();
 
 async function updateDb() {
 	const startTime = process.hrtime.bigint();
-	console.log(`Request public stashes for next_change_id=${nextChangeId}...`);
-	const result = await db.query.publicStashChange.findFirst({
-		where: eq(publicStashChange.stashChangeId, nextChangeId ?? "undefined"),
-	});
+	console.log(
+		`Request public stashes for next_change_id=${formatStashIndex(
+			latestIndex,
+		)}...`,
+	);
 
-	if (!result) {
-		console.log(
-			`Couldnt find stash change with id ${nextChangeId}! Seems there are holes in data?`,
-		);
-		await Bun.sleep(1000);
-		return;
-	}
-
-	const { stashes, next_change_id } =
-		await getPublicStashesFromR2(nextChangeId);
+	const { stashes, next_change_id } = await getPublicStashesFromR2(latestIndex);
 
 	if (stashes.length === 0) {
 		console.log(
@@ -95,29 +87,30 @@ async function updateDb() {
 			if (dbStash && stash.public) {
 				// add items that need to be created
 				const itemIds: string[] = [];
-				for (const item of stash.items) {
-					if (!item.id) {
-						console.warn("Missing id for item!", JSON.stringify(item));
-					}
-					itemIds.push(item.id ?? "<unknown id>");
-					const dbItem = await toItemListing(stash, item);
+				const dbItems = await Promise.all(
+					stash.items.map((item) => {
+						itemIds.push(item.id ?? "<unknown id>");
+						return toItemListing(stash, item);
+					}),
+				);
+
+				if (dbItems.length > 0) {
 					await tx
 						.insert(itemListing)
-						.values(dbItem)
+						.values(dbItems)
 						.onConflictDoUpdate({
 							target: itemListing.id,
 							set: {
-								priceValue: dbItem.priceValue,
-								priceUnit: dbItem.priceUnit,
+								priceValue: sql.raw(`excluded.${itemListing.priceValue.name}`),
+								priceUnit: sql.raw(`excluded.${itemListing.priceUnit.name}`),
 							},
 						});
-					updateItemCount++;
-				}
 
-				if (itemIds.length > 0) {
 					await tx
 						.delete(itemListing)
 						.where(notInArray(itemListing.id, itemIds));
+
+					updateItemCount += dbItems.length;
 				}
 			}
 		}
@@ -130,27 +123,25 @@ async function updateDb() {
 	console.log(
 		`Processing ${stashes.length} stashes done in ${elapsed(startTime)}ms!`,
 	);
-	nextChangeId = next_change_id;
-	console.log("Saving next_change_id:", nextChangeId);
-	await setNextChangeId(nextChangeId);
+	latestIndex++;
+	console.log("Saving latest index:", latestIndex);
+	await setLatestIndex(latestIndex);
 }
 
 async function run() {
-	Bun.serve({
-		fetch() {
-			return new Response("pong", {
-				status: 200,
-			});
-		},
-		port: 8080,
-	});
-
 	repeatUntil(
 		() => true,
 		async () => {
 			try {
 				await updateDb();
 			} catch (err) {
+				if (err instanceof Error && err.message.includes("NoSuchKey")) {
+					console.log(
+						"No such key, waiting for scrapper to get latest stash change.",
+					);
+					await Bun.sleep(5000);
+					return;
+				}
 				console.error("Couldnt update DB !");
 				console.error(err);
 				await Bun.sleep(1000);

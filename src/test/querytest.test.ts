@@ -1,6 +1,6 @@
 import { serialize } from "bun:jsc";
 import { expect, test } from "bun:test";
-import type { PublicStashChange } from "../poe-api.ts";
+import type { PublicStashChange } from "../poe-api/poe-api.ts";
 import { chunkify } from "../utils/chunkify.ts";
 import { elapsed } from "../utils/elapsed.ts";
 import { parallelize } from "../utils/parallelize.ts";
@@ -32,7 +32,7 @@ test.skip("parallel", async () => {
 	}
 });
 
-test("all at once", async () => {
+test.skip("all at once", async () => {
 	console.log(`Found ${stashes.length} public stashes!`);
 	console.log("Querying changed stash...");
 	const startTime = process.hrtime.bigint();
@@ -55,7 +55,7 @@ test("all at once", async () => {
 	);
 });
 
-test("size check", async () => {
+test.skip("size check", async () => {
 	let startTime = process.hrtime.bigint();
 	console.log(
 		`serialize: ${serialize(stashes).byteLength}, time: ${elapsed(

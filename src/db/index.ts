@@ -6,7 +6,6 @@ import * as schema from "./schema";
 export const db = drizzle(new Database("db/mpt.db"), {
 	schema,
 });
-
 migrate(db, {
 	migrationsFolder: "./migrations",
 });

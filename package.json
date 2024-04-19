@@ -1,10 +1,11 @@
 {
     "name": "mirrored-poe-trade",
     "module": "index.ts",
-    "version": "1.0.30",
+    "version": "1.0.45",
     "type": "module",
     "scripts": {
-        "start": "bun run src/updater.ts",
+        "start:updater": "bun run src/updater.ts",
+        "start:scrapper": "bun run src/scrapper.ts",
         "build:updater": "bun build src/updater.ts --outfile=src/updater.js --target=bun",
         "build:scrapper": "bun build src/scrapper.ts --outfile=src/scrapper.js --target=bun",
         "build:api": "bun build src/api.ts --outfile=src/api.js --target=bun",
@@ -12,7 +13,8 @@
         "lint": "tsc --noEmit && biome lint .",
         "lint:fix": "biome lint --apply .",
         "push": "bun ./tools/docker-push.ts",
-        "sql:generate": "drizzle-kit generate:sqlite"
+        "sql:generate": "drizzle-kit generate:sqlite",
+        "remote:copy:scrapper": "scp ubuntu@zenshibot.xyz:/var/lib/docker/volumes/mpt-db/_data/scrapper.db db/remote-scrapper.db"
     },
     "devDependencies": {
         "@biomejs/biome": "^1.6.4",
@@ -24,9 +26,14 @@
     "dependencies": {
         "@aws-sdk/client-s3": "^3.554.0",
         "@libsql/client": "^0.6.0",
+        "@types/aws4": "^1.11.6",
+        "@types/lodash": "^4.17.0",
+        "aws4": "^1.12.0",
         "concurrently": "^8.2.2",
         "drizzle-orm": "^0.30.8",
         "elysia": "^1.0.13",
+        "fast-xml-parser": "^4.3.6",
+        "lodash": "^4.17.21",
         "uuidv7": "^0.6.3"
     },
     "trustedDependencies": [

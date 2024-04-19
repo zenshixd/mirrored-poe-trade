@@ -1,72 +1,75 @@
-import { S3 } from "@aws-sdk/client-s3";
-import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
-import { db } from "./db";
-import { publicStashChange } from "./db/schema.ts";
+import { last } from "lodash";
 import {
 	BUCKET_NAME,
 	authorize,
 	getPublicStashes,
+	getPublicStashesFromR2,
+} from "./poe-api/poe-api.ts";
+import { r2 } from "./r2/r2.ts";
+import {
+	formatStashIndex,
+	parseStashIndex,
 	publicStashFilename,
-} from "./poe-api.ts";
+} from "./r2/utils.ts";
 import { elapsed } from "./utils/elapsed.ts";
 import { repeatUntil } from "./utils/repeatUntil.ts";
 
-const r2 = new S3({
-	endpoint: `https://${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-	region: "auto",
-});
-let queuePromise = Promise.resolve();
-
 async function validateIntegrity(): Promise<{
-	missingStashIndexes: number[];
+	highestIndex: number;
+	missingStashChangeIds: { nextStashChangeId: string; index: number }[];
 }> {
 	console.log("Verifying data integrity...");
-	const missingStashIndexes = [];
+	const missingStashChangeIds = [];
+	let highestIndex = 0;
 
-	let previousStashChange = await db.query.publicStashChange.findFirst({
-		where: eq(publicStashChange.index, 1),
-	});
-
-	if (!previousStashChange) {
-		console.log(
-			"There is nothing in the PublicStashChange table. Skipping validation.",
-		);
-		return { missingStashIndexes: [] };
-	}
-
-	let startIndex = 0;
+	let continuationToken: string | undefined;
 	while (true) {
-		const list = await db.query.publicStashChange.findMany({
-			where: and(
-				gte(publicStashChange.index, startIndex),
-				lt(publicStashChange.index, startIndex + 100),
-			),
-			orderBy: asc(publicStashChange.index),
+		const result = await r2.listObjects(BUCKET_NAME, {
+			continuationToken,
 		});
 
-		for (let i = 0; i < list.length; i++) {
-			const item = list[i];
-			if (item.index !== previousStashChange.index + 1) {
-				console.log(
-					`Missing stash change between ${item.index} and ${previousStashChange.index}`,
-				);
-				missingStashIndexes.push(item.index - 1);
-			}
-
-			previousStashChange = item;
-			startIndex = item.index;
-		}
-
-		// that was last batch
-		if (list.length < 100) {
+		if (!result.Contents || result.Contents.length === 0) {
 			break;
 		}
+
+		for (let i = 0; i < result.Contents.length - 1; i++) {
+			const stashIndex = parseStashIndex(result.Contents[i].Key);
+			const nextStashIndex = parseStashIndex(result.Contents[i + 1].Key);
+			if (stashIndex !== nextStashIndex - 1) {
+				const stash = await getPublicStashesFromR2(stashIndex);
+				missingStashChangeIds.push({
+					nextStashChangeId: stash.next_change_id,
+					index: stashIndex + 1,
+				});
+				console.log(
+					`Found missing stash change id=${stash.next_change_id} (index=${
+						stashIndex + 1
+					})`,
+				);
+			}
+		}
+
+		const lastItem = last(result.Contents);
+		if (!lastItem) {
+			throw new Error("No last item found");
+		}
+
+		highestIndex = parseStashIndex(lastItem.Key);
+
+		if (result.KeyCount < result.MaxKeys) {
+			break;
+		}
+
+		continuationToken = result.NextContinuationToken;
 	}
 
 	console.log(
-		`Data integrity verification complete! Found ${missingStashIndexes.length} missing stash changes. Loading them before searching for newest ones.`,
+		`Data integrity verification complete! Found ${missingStashChangeIds.length} missing stash changes. Loading them before searching for newest ones.`,
 	);
-	return { missingStashIndexes };
+	console.log(
+		`Missing stash changes: ${JSON.stringify(missingStashChangeIds)}`,
+	);
+	return { missingStashChangeIds, highestIndex };
 }
 
 async function loadPublicStashes(
@@ -76,10 +79,14 @@ async function loadPublicStashes(
 ) {
 	let startTime = process.hrtime.bigint();
 	try {
-		console.log(`[${nextChangeId}] Requesting public stashes...`);
+		console.log(
+			`[${formatStashIndex(nextStashIndex)}] Requesting public stashes...`,
+		);
 		const result = await getPublicStashes(token, nextChangeId);
 		console.log(
-			`[${nextChangeId}] Retrieved stashes in ${elapsed(startTime)}ms`,
+			`[${formatStashIndex(nextStashIndex)}] Retrieved stashes in ${elapsed(
+				startTime,
+			)}ms`,
 		);
 		if (result.stashes.length === 0) {
 			console.log("No stashes found! Skipping.");
@@ -88,61 +95,88 @@ async function loadPublicStashes(
 
 		startTime = process.hrtime.bigint();
 
-		const promise = r2
-			.putObject({
-				Bucket: BUCKET_NAME,
-				Key: publicStashFilename(nextChangeId),
-				Body: Bun.gzipSync(JSON.stringify(result)),
-			})
-			.then(() => {
-				console.log(`[${nextChangeId}] Added stash to R2`);
-				return db.insert(publicStashChange).values({
-					index: nextStashIndex,
-					stashChangeId: nextChangeId ?? "undefined",
-					nextStashChangeId: result.next_change_id,
-				});
-			});
-
-		queuePromise = queuePromise
-			.then(() => promise)
-			.then(async () => {
-				console.log(
-					`[${nextChangeId}] Putting data to DB took ${elapsed(startTime)}ms`,
-				);
-			});
+		await r2.putObject(
+			BUCKET_NAME,
+			publicStashFilename(nextStashIndex),
+			Buffer.from(Bun.gzipSync(JSON.stringify(result))),
+		);
+		console.log(
+			`[${formatStashIndex(nextStashIndex)}] Putting data to R2 took ${elapsed(
+				startTime,
+			)}ms`,
+		);
 
 		return result.next_change_id;
 	} catch (err) {
-		console.error(`Couldnt retrieve public stashes for id=${nextChangeId} !`);
+		console.error(
+			`Couldnt retrieve public stashes for id=${nextChangeId} (index=${formatStashIndex(
+				nextStashIndex,
+			)}) !`,
+		);
 		console.error(err);
 		return nextChangeId;
 	}
 }
 
-async function scrap() {
-	const latestItem = await db.query.publicStashChange.findFirst({
-		orderBy: desc(publicStashChange.index),
-	});
-	let nextStashChangeIndex = latestItem ? latestItem.index + 1 : 0;
-	let nextStashChangeId = latestItem?.nextStashChangeId ?? "undefined";
+async function loadMissingStashes(
+	token: string,
+	missingStashChangeIds: { nextStashChangeId: string; index: number }[],
+) {
+	let missingStashInfo = missingStashChangeIds.shift();
+	while (missingStashInfo) {
+		console.log("Loading missing stash", missingStashInfo);
+		const nextStashChangeId = await loadPublicStashes(
+			token,
+			missingStashInfo.index,
+			missingStashInfo.nextStashChangeId,
+		);
 
+		const nextStashIndex = missingStashInfo.index + 1;
+		const nextStashExists = await r2.headObject(
+			BUCKET_NAME,
+			publicStashFilename(nextStashIndex),
+		);
+
+		if (nextStashExists) {
+			console.log(
+				`Stash change with index ${nextStashIndex} exists. Loading next missing stash change...`,
+			);
+			missingStashInfo = missingStashChangeIds.shift();
+		} else {
+			console.log(
+				`Stash change with index ${nextStashIndex} doesnt exist. Loading stash change ${nextStashChangeId}...`,
+			);
+			missingStashInfo = {
+				nextStashChangeId,
+				index: nextStashIndex,
+			};
+		}
+	}
+}
+
+async function scrap() {
 	const token = await authorize();
+	let { missingStashChangeIds, highestIndex } = await validateIntegrity();
+	await loadMissingStashes(token, missingStashChangeIds);
+	const lastStash =
+		highestIndex > 0 ? await getPublicStashesFromR2(highestIndex) : null;
+	let nextStashChangeId = lastStash?.next_change_id ?? "undefined";
 
 	await repeatUntil(
 		() => true,
 		async () => {
 			const newNextChangeId = await loadPublicStashes(
 				token,
-				nextStashChangeIndex,
+				highestIndex + 1,
 				nextStashChangeId,
 			);
 
 			if (nextStashChangeId !== newNextChangeId) {
 				nextStashChangeId = newNextChangeId;
-				nextStashChangeIndex++;
+				highestIndex++;
 			}
 		},
-		1000,
+		0,
 	);
 }
 

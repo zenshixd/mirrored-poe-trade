@@ -1,9 +1,16 @@
 volumes:
   db:
     name: mpt-db
+networks:
+  zenshi:
+    name: zenshi-vps_default
+    external: true
 services:
   updater:
+    container_name: mpt-updater
     command: bun run updater.js
+    mem_limit: 1g
+    restart: unless-stopped
     build:
       context: .
     environment:
@@ -12,8 +19,8 @@ services:
       poe_client_secret: ${poe_client_secret}
       CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      CLOUDFLARE_R2_KEY_ID: ${CLOUDFLARE_R2_KEY_ID}
+      CLOUDFLARE_R2_KEY_SECRET: ${CLOUDFLARE_R2_KEY_SECRET}
       AWS_REGION: ${AWS_REGION}
       NODE_ENV: production
     volumes:
@@ -23,7 +30,10 @@ services:
     logging:
       driver: local
   scrapper:
+    container_name: mpt-scrapper
     command: bun run scrapper.js
+    mem_limit: 512m
+    restart: unless-stopped
     build:
       context: .
     environment:
@@ -32,32 +42,35 @@ services:
       poe_client_secret: ${poe_client_secret}
       CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      CLOUDFLARE_R2_KEY_ID: ${CLOUDFLARE_R2_KEY_ID}
+      CLOUDFLARE_R2_KEY_SECRET: ${CLOUDFLARE_R2_KEY_SECRET}
       AWS_REGION: ${AWS_REGION}
       NODE_ENV: production
     volumes:
       - type: volume
         source: db
         target: /home/bun/app/db
-    restart: always
     logging:
       driver: local
   studio:
+    container_name: mpt-studio
     image: coleifer/sqlite-web
-    command: sqlite_web --host 0.0.0.0 --port=4001 /data/mpt.db
+    command: sqlite_web --host 0.0.0.0 --port 8082 /data/mpt.db
     environment:
       NODE_ENV: production
     ports:
-      - 4001:4001
+      - 8082:8082
     volumes:
       - type: volume
         source: db
         target: /data
-    restart: always
+    restart: unless-stopped
     logging:
       driver: local
+    networks:
+      - zenshi
   webapp:
+    container_name: mpt-app
     build:
       context: .
     command: bun run api.js
@@ -70,6 +83,8 @@ services:
       - type: volume
         source: db
         target: /home/bun/app/db
-    restart: always
+    restart: unless-stopped
     logging:
       driver: local
+    networks:
+      - zenshi

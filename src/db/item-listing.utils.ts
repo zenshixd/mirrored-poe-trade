@@ -3,7 +3,7 @@ import {
 	type PublicStashChange,
 	type PublicStashItem,
 	parseNote,
-} from "../poe-api.ts";
+} from "../poe-api/poe-api.ts";
 import { db } from "./index.ts";
 import {
 	type ItemListing,
