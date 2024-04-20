@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "sqlite",
-  "id": "e055f722-7927-4499-beb6-0765dc123f09",
-  "prevId": "209a7662-02a7-4212-8f09-abc0be81f87d",
+  "id": "64c0d4fb-770e-4819-af61-ca776afb017e",
+  "prevId": "e055f722-7927-4499-beb6-0765dc123f09",
   "tables": {
     "appState": {
       "name": "appState",
@@ -109,6 +109,13 @@
         }
       },
       "indexes": {
+        "itemListing_stashId_idx": {
+          "name": "itemListing_stashId_idx",
+          "columns": [
+            "stashId"
+          ],
+          "isUnique": false
+        },
         "league_name_idx": {
           "name": "league_name_idx",
           "columns": [
@@ -130,6 +137,13 @@
           "columns": [
             "league",
             "typeLine"
+          ],
+          "isUnique": false
+        },
+        "itemListing_category_idx": {
+          "name": "itemListing_category_idx",
+          "columns": [
+            "category"
           ],
           "isUnique": false
         }
@@ -268,44 +282,6 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {}
-    },
-    "publicStashChange": {
-      "name": "publicStashChange",
-      "columns": {
-        "index": {
-          "name": "index",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "stashChangeId": {
-          "name": "stashChangeId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "nextStashChangeId": {
-          "name": "nextStashChangeId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "stashChangeId_idx": {
-          "name": "stashChangeId_idx",
-          "columns": [
-            "stashChangeId"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {}
     }

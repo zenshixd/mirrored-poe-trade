@@ -47,9 +47,11 @@ export const itemListing = sqliteTable(
 		priceUnit: text("priceUnit").notNull(),
 	},
 	(t) => ({
+		stashId_idx: index("itemListing_stashId_idx").on(t.stashId),
 		league_name_idx: index("league_name_idx").on(t.league, t.name),
 		league_baseType_idx: index("league_baseType_idx").on(t.league, t.baseType),
 		league_typeLine_idx: index("league_typeLine_idx").on(t.league, t.typeLine),
+		category_idx: index("itemListing_category_idx").on(t.category),
 	}),
 );
 export type ItemListing = typeof itemListing.$inferSelect;
@@ -59,17 +61,3 @@ export const appState = sqliteTable("appState", {
 	value: text("value").notNull(),
 });
 export type AppState = typeof appState.$inferSelect;
-
-export const publicStashChange = sqliteTable(
-	"publicStashChange",
-	{
-		index: integer("index").notNull().primaryKey(),
-		stashChangeId: text("stashChangeId").notNull(),
-		nextStashChangeId: text("nextStashChangeId").notNull(),
-	},
-	(t) => ({
-		stashChangeId_idx: index("stashChangeId_idx").on(t.stashChangeId),
-	}),
-);
-
-export type PublicStashChange = typeof publicStashChange.$inferSelect;

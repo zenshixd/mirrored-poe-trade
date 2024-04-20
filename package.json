@@ -1,7 +1,7 @@
 {
     "name": "mirrored-poe-trade",
     "module": "index.ts",
-    "version": "1.0.45",
+    "version": "1.0.60",
     "type": "module",
     "scripts": {
         "start:updater": "bun run src/updater.ts",
@@ -14,7 +14,8 @@
         "lint:fix": "biome lint --apply .",
         "push": "bun ./tools/docker-push.ts",
         "sql:generate": "drizzle-kit generate:sqlite",
-        "remote:copy:scrapper": "scp ubuntu@zenshibot.xyz:/var/lib/docker/volumes/mpt-db/_data/scrapper.db db/remote-scrapper.db"
+        "download:mpt": "scp ubuntu@zenshibot.xyz:/var/lib/docker/volumes/mpt-db/_data/mpt.db db/remote-mpt.db",
+        "upload:mpt": "scp db/remote-mpt.db ubuntu@zenshibot.xyz:/home/ubuntu/new-mpt.db"
     },
     "devDependencies": {
         "@biomejs/biome": "^1.6.4",

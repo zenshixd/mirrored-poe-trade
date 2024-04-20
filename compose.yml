@@ -9,7 +9,7 @@ services:
   updater:
     container_name: mpt-updater
     command: bun run updater.js
-    mem_limit: 1g
+    mem_limit: 512m
     restart: unless-stopped
     build:
       context: .

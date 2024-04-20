@@ -1,10 +1,16 @@
 import { and, eq } from "drizzle-orm";
+import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { Elysia } from "elysia";
 import { db } from "./db";
 import { getLeagueId } from "./db/item-listing.utils.ts";
 import { itemListing } from "./db/schema.ts";
 
 const port = process.env.PORT || 4000;
+
+migrate(db, {
+	migrationsFolder: "./migrations",
+});
+
 new Elysia()
 	.get("/query", async (context) => {
 		const startTime = process.hrtime.bigint();
@@ -28,7 +34,7 @@ new Elysia()
 
 		const result = await db.query.itemListing.findMany({
 			where: and(eq(itemListing.name, name), eq(itemListing.league, leagueId)),
-			limit: 50,
+			limit: 20,
 		});
 
 		const time = (process.hrtime.bigint() - startTime) / 1_000_000n;

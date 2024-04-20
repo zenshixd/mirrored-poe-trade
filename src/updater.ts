@@ -1,4 +1,5 @@
-import { asc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
+import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { db } from "./db";
 import { toItemListing, toPublicStash } from "./db/item-listing.utils.ts";
 import { getLatestIndex, setLatestIndex } from "./db/next-change.utils.ts";
@@ -6,9 +7,27 @@ import { itemListing, publicStash } from "./db/schema.ts";
 import { getPublicStashesFromR2 } from "./poe-api/poe-api.ts";
 import { formatStashIndex } from "./r2/utils.ts";
 import { elapsed } from "./utils/elapsed.ts";
-import { repeatUntil } from "./utils/repeatUntil.ts";
 
 let latestIndex = await getLatestIndex();
+
+const deleteItemListingsQuery = db
+	.delete(itemListing)
+	.where(eq(itemListing.stashId, sql.placeholder("stashId")))
+	.prepare();
+const deletePublicStashesQuery = db
+	.delete(publicStash)
+	.where(eq(publicStash.id, sql.placeholder("stashId")))
+	.prepare();
+const insertPublicStashQuery = db
+	.insert(publicStash)
+	.values({
+		id: sql.placeholder("id"),
+		name: sql.placeholder("name"),
+		league: sql.placeholder("league"),
+		accountName: sql.placeholder("accountName"),
+		itemsCount: sql.placeholder("itemsCount"),
+	})
+	.prepare();
 
 async function updateDb() {
 	const startTime = process.hrtime.bigint();
@@ -43,82 +62,66 @@ async function updateDb() {
 		} stashes!`,
 	);
 
+	const leagueSkipped = 0;
 	let createStashCount = 0;
 	let createStashItemsCount = 0;
 	let updateItemCount = 0;
-	const dropItemsCount = 0;
+	let updateStashCount = 0;
 	let deleteStashCount = 0;
-	await db.transaction(async (tx) => {
-		for (const stash of stashes) {
-			if (
-				!stash.league /*||
-			isStandardLeague(stash.league) ||
-			isPrivateLeague(stash.league)*/
-			) {
-				// skip standard and private leagues
-				continue;
-			}
+	for (const stash of stashes) {
+		// if (
+		// 	isStandardLeague(stash.league) ||
+		// 	isPrivateLeague(stash.league)
+		// ) {
+		// 	// skip standard and private leagues
+		// 	leagueSkipped++;
+		// 	continue;
+		// }
 
-			const dbStash = dbStashes.find((dbStash) => dbStash.id === stash.id);
-			if (dbStash && !stash.public) {
-				// Stash got unlisted - remove all items from db
-				await tx.delete(publicStash).where(eq(publicStash.id, stash.id));
-				deleteStashCount++;
-			}
-
-			if (!dbStash && stash.public) {
-				// we havent indexed this stash tab
-				// just put everything in
-				await tx.insert(publicStash).values(await toPublicStash(stash));
-
-				if (stash.items.length > 0) {
-					await tx
-						.insert(itemListing)
-						.values(
-							await Promise.all(
-								stash.items.map((item) => toItemListing(stash, item)),
-							),
-						);
-				}
-				createStashCount++;
-				createStashItemsCount += stash.items.length;
-			}
-
-			if (dbStash && stash.public) {
-				// add items that need to be created
-				const itemIds: string[] = [];
-				const dbItems = await Promise.all(
-					stash.items.map((item) => {
-						itemIds.push(item.id ?? "<unknown id>");
-						return toItemListing(stash, item);
-					}),
-				);
-
-				if (dbItems.length > 0) {
-					await tx
-						.insert(itemListing)
-						.values(dbItems)
-						.onConflictDoUpdate({
-							target: itemListing.id,
-							set: {
-								priceValue: sql.raw(`excluded.${itemListing.priceValue.name}`),
-								priceUnit: sql.raw(`excluded.${itemListing.priceUnit.name}`),
-							},
-						});
-
-					await tx
-						.delete(itemListing)
-						.where(notInArray(itemListing.id, itemIds));
-
-					updateItemCount += dbItems.length;
-				}
-			}
+		const dbStash = dbStashes.find((dbStash) => dbStash.id === stash.id);
+		if (!stash.public) {
+			// Stash got unlisted - remove all items from db
+			deleteItemListingsQuery.run({ stashId: stash.id });
+			deletePublicStashesQuery.run({ stashId: stash.id });
+			deleteStashCount++;
 		}
 
-		console.log(
-			`createStash: ${createStashCount} (items: ${createStashItemsCount}), updateItem: ${updateItemCount}, dropItems: ${dropItemsCount}, deleteStash: ${deleteStashCount}`,
-		);
-	});
+		if (!dbStash && stash.public) {
+			// we havent indexed this stash tab
+			// just put everything in
+			insertPublicStashQuery.run(await toPublicStash(stash));
+			if (stash.items.length > 0) {
+				db.insert(itemListing).values(
+					await Promise.all(
+						stash.items.map((item) => toItemListing(stash, item)),
+					),
+				);
+			}
+
+			createStashCount++;
+			createStashItemsCount += stash.items.length;
+		}
+
+		if (dbStash && stash.public) {
+			// add items that need to be created
+			const dbItems = await Promise.all(
+				stash.items.map((item) => toItemListing(stash, item)),
+			);
+
+			deleteItemListingsQuery.run({ stashId: stash.id });
+			if (dbItems.length > 0) {
+				db.insert(itemListing).values(dbItems);
+
+				updateItemCount += dbItems.length;
+			}
+
+			updateStashCount++;
+		}
+	}
+
+	console.log(
+		`leagueSkipped: ${leagueSkipped}, createStash: ${createStashCount} (items: ${createStashItemsCount}), updateStash: ${updateStashCount}, updateItem: ${updateItemCount}, deleteStash: ${deleteStashCount}`,
+	);
 
 	console.log(
 		`Processing ${stashes.length} stashes done in ${elapsed(startTime)}ms!`,
@@ -129,26 +132,26 @@ async function updateDb() {
 }
 
 async function run() {
-	repeatUntil(
-		() => true,
-		async () => {
-			try {
-				await updateDb();
-			} catch (err) {
-				if (err instanceof Error && err.message.includes("NoSuchKey")) {
-					console.log(
-						"No such key, waiting for scrapper to get latest stash change.",
-					);
-					await Bun.sleep(5000);
-					return;
-				}
-				console.error("Couldnt update DB !");
-				console.error(err);
-				await Bun.sleep(1000);
+	migrate(db, {
+		migrationsFolder: "./migrations",
+	});
+
+	while (true) {
+		try {
+			await updateDb();
+		} catch (err) {
+			if (err instanceof Error && err.message.includes("NoSuchKey")) {
+				console.log(
+					"No such key, waiting for scrapper to get latest stash change.",
+				);
+				await Bun.sleep(5000);
+				return;
 			}
-		},
-		0,
-	);
+			console.error("Couldnt update DB !");
+			console.error(err);
+			await Bun.sleep(1000);
+		}
+	}
 }
 
 await run();
