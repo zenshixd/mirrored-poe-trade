@@ -13,10 +13,12 @@ let latestIndex = await getLatestIndex();
 const deleteItemListingsQuery = db
 	.delete(itemListing)
 	.where(eq(itemListing.stashId, sql.placeholder("stashId")))
+	.returning({ id: itemListing.id })
 	.prepare();
 const deletePublicStashesQuery = db
 	.delete(publicStash)
 	.where(eq(publicStash.id, sql.placeholder("stashId")))
+	.returning({ id: publicStash.id })
 	.prepare();
 const insertPublicStashQuery = db
 	.insert(publicStash)
@@ -68,6 +70,7 @@ async function updateDb() {
 	let updateItemCount = 0;
 	let updateStashCount = 0;
 	let deleteStashCount = 0;
+	let deleteStashItemsCount = 0;
 	for (const stash of stashes) {
 		// if (
 		// 	isStandardLeague(stash.league) ||
@@ -81,21 +84,28 @@ async function updateDb() {
 		const dbStash = dbStashes.find((dbStash) => dbStash.id === stash.id);
 		if (!stash.public) {
 			// Stash got unlisted - remove all items from db
-			deleteItemListingsQuery.run({ stashId: stash.id });
-			deletePublicStashesQuery.run({ stashId: stash.id });
-			deleteStashCount++;
+			const deletedItems = await deleteItemListingsQuery.execute({
+				stashId: stash.id,
+			});
+			const deletedStashes = await deletePublicStashesQuery.execute({
+				stashId: stash.id,
+			});
+			deleteStashCount += deletedStashes.length;
+			deleteStashItemsCount += deletedItems.length;
 		}
 
 		if (!dbStash && stash.public) {
 			// we havent indexed this stash tab
 			// just put everything in
-			insertPublicStashQuery.run(await toPublicStash(stash));
+			await insertPublicStashQuery.execute(await toPublicStash(stash));
 			if (stash.items.length > 0) {
-				db.insert(itemListing).values(
-					await Promise.all(
-						stash.items.map((item) => toItemListing(stash, item)),
-					),
-				);
+				await db
+					.insert(itemListing)
+					.values(
+						await Promise.all(
+							stash.items.map((item) => toItemListing(stash, item)),
+						),
+					);
 			}
 
 			createStashCount++;
@@ -108,9 +118,9 @@ async function updateDb() {
 				stash.items.map((item) => toItemListing(stash, item)),
 			);
 
-			deleteItemListingsQuery.run({ stashId: stash.id });
+			await deleteItemListingsQuery.execute({ stashId: stash.id });
 			if (dbItems.length > 0) {
-				db.insert(itemListing).values(dbItems);
+				await db.insert(itemListing).values(dbItems);
 
 				updateItemCount += dbItems.length;
 			}
@@ -120,7 +130,7 @@ async function updateDb() {
 	}
 
 	console.log(
-		`leagueSkipped: ${leagueSkipped}, createStash: ${createStashCount} (items: ${createStashItemsCount}), updateStash: ${updateStashCount}, updateItem: ${updateItemCount}, deleteStash: ${deleteStashCount}`,
+		`leagueSkipped: ${leagueSkipped}, createStash: ${createStashCount} (items: ${createStashItemsCount}), updateStash: ${updateStashCount}, updateItem: ${updateItemCount}, deleteStash: ${deleteStashCount} (items: ${deleteStashItemsCount})`,
 	);
 
 	console.log(

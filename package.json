@@ -1,7 +1,7 @@
 {
     "name": "mirrored-poe-trade",
     "module": "index.ts",
-    "version": "1.0.60",
+    "version": "1.0.63",
     "type": "module",
     "scripts": {
         "start:updater": "bun run src/updater.ts",
