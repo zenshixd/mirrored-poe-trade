@@ -5,29 +5,8 @@
     {
       "idx": 0,
       "version": "5",
-      "when": 1713030631957,
-      "tag": "0000_awesome_silver_sable",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "5",
-      "when": 1713098093249,
-      "tag": "0001_wild_jackpot",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "5",
-      "when": 1713627160597,
-      "tag": "0002_quiet_pepper_potts",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "5",
-      "when": 1713627248134,
-      "tag": "0003_flippant_black_tom",
+      "when": 1713711050256,
+      "tag": "0000_noisy_wind_dancer",
       "breakpoints": true
     }
   ]

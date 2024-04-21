@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { R2 } from "../r2.ts";
+import { R2 } from "../r2";
 
 describe("r2", () => {
 	if (

@@ -1,64 +1,31 @@
-import { eq } from "drizzle-orm";
-import {
-	type PublicStashChange,
-	type PublicStashItem,
-	parseNote,
-} from "../poe-api/poe-api.ts";
-import { db } from "./index.ts";
-import {
-	type ItemListing,
-	type League,
-	type PublicStash,
-	league,
-} from "./schema.ts";
-
-const leaguesCache: Record<string, League> = {};
-export async function getLeagueId(leagueName: string) {
-	if (!(leagueName in leaguesCache)) {
-		let leagueItem = await db.query.league.findFirst({
-			where: eq(league.name, leagueName),
-		});
-
-		if (!leagueItem) {
-			const result = await db
-				.insert(league)
-				.values({
-					name: leagueName,
-					isEventLeague: isEventLeague(leagueName),
-					isPrivateLeague: isPrivateLeague(leagueName),
-					isStandardLeague: isStandardLeague(leagueName),
-				})
-				.returning();
-			leagueItem = result[0];
-		}
-
-		leaguesCache[leagueName] = leagueItem;
-	}
-
-	return leaguesCache[leagueName].id;
-}
+import { parseNote } from "../poe-api/poe-api";
+import type {
+	PoeApiPublicStashChange,
+	PoeApiPublicStashItem,
+} from "../poe-api/types";
+import type { ItemListing, PublicStash } from "./schema";
 
 export async function toPublicStash(
-	stash: PublicStashChange,
+	stash: PoeApiPublicStashChange,
 ): Promise<PublicStash> {
 	return {
 		id: stash.id,
 		name: stash.stash ?? "<empty>",
 		accountName: stash.accountName ?? "<no accountname>",
-		league: stash.league ? await getLeagueId(stash.league) : 999,
+		league: stash.league ?? "<no league>",
 		itemsCount: stash.items?.length ?? 0,
 	};
 }
 
 export async function toItemListing(
-	stash: PublicStashChange,
-	item: PublicStashItem,
+	stash: PoeApiPublicStashChange,
+	item: PoeApiPublicStashItem,
 ) {
 	const { priceValue, priceUnit } = parseNote(item.note);
 	return {
 		id: item.id ?? "<unknown id>",
 		stashId: stash.id,
-		league: stash.league ? await getLeagueId(stash.league) : 999,
+		league: stash.league ?? "<no league>",
 		name: itemName(item),
 		baseType: item.baseType ?? "<unknown baseType>",
 		typeLine: item.typeLine,
@@ -78,7 +45,7 @@ const accountName = (accountName: string | undefined) => {
 	return accountName;
 };
 
-const itemName = (item: PublicStashItem) => {
+const itemName = (item: PoeApiPublicStashItem) => {
 	switch (item.extended.category) {
 		case "cards":
 		case "gems":
@@ -108,7 +75,7 @@ const itemName = (item: PublicStashItem) => {
 	}
 };
 
-const itemCategory = (item: PublicStashItem) => {
+const itemCategory = (item: PoeApiPublicStashItem) => {
 	if (
 		item.extended.category === "monsters" &&
 		item.extended.subcategories?.includes("beast")

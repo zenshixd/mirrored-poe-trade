@@ -1,7 +1,7 @@
 import * as aws4 from "aws4";
 import { XMLParser } from "fast-xml-parser";
-import type { R2Config, R2ListObjectsResult } from "./types.ts";
-import { formatError } from "./utils.ts";
+import type { R2Config, R2ListObjectsResult } from "./types";
+import { formatError } from "./utils";
 
 export class R2 {
 	private readonly bucketEndpoint: (bucketName: string) => string;

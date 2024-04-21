@@ -1,6 +1,6 @@
 import { test } from "bun:test";
-import { authorize, getPublicStashes } from "../poe-api/poe-api.ts";
-import { r2 } from "../r2/r2.ts";
+import { authorize, getPublicStashes } from "../poe-api/poe-api";
+import { r2 } from "../r2/r2";
 
 test.skip("scrap one", async () => {
 	const nextChangeId = "602398502-612613083-599158289-609753227-606547204";
@@ -20,6 +20,9 @@ test("list everything", async () => {
 		const result = await r2.listObjects("mpt-stashes-prod", {
 			continuationToken,
 		});
+		if (!result.Contents) {
+			break;
+		}
 
 		total += result.Contents.length;
 		stashChangeIds.push(...result.Contents.map((c) => c.Key));

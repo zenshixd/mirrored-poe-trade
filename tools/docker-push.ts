@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { $ } from "bun";
 import packageJson from "../package.json";
-import { bump } from "./bump.ts";
+import { bump } from "./bump";
 
 const version = await bump("patch");
 

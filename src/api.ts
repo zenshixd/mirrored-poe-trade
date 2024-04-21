@@ -1,15 +1,9 @@
-import { and, eq } from "drizzle-orm";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
+import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
-import { db } from "./db";
-import { getLeagueId } from "./db/item-listing.utils.ts";
-import { itemListing } from "./db/schema.ts";
+import { doesDbExist, getDb } from "./db";
+import { itemListing } from "./db/schema";
 
 const port = process.env.PORT || 4000;
-
-migrate(db, {
-	migrationsFolder: "./migrations",
-});
 
 new Elysia()
 	.get("/query", async (context) => {
@@ -24,16 +18,17 @@ new Elysia()
 			};
 		}
 
-		const leagueId = await getLeagueId(league);
-
-		if (!leagueId) {
+		if (!(await doesDbExist(league))) {
+			context.set.status = 404;
 			return {
-				error: "unknown_league",
+				error: "league_not_found",
 			};
 		}
 
+		const db = getDb(league);
+
 		const result = await db.query.itemListing.findMany({
-			where: and(eq(itemListing.name, name), eq(itemListing.league, leagueId)),
+			where: eq(itemListing.name, name),
 			limit: 20,
 		});
 

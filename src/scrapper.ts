@@ -4,15 +4,15 @@ import {
 	authorize,
 	getPublicStashes,
 	getPublicStashesFromR2,
-} from "./poe-api/poe-api.ts";
-import { r2 } from "./r2/r2.ts";
+} from "./poe-api/poe-api";
+import { r2 } from "./r2/r2";
 import {
 	formatStashIndex,
 	parseStashIndex,
 	publicStashFilename,
-} from "./r2/utils.ts";
-import { elapsed } from "./utils/elapsed.ts";
-import { repeatUntil } from "./utils/repeatUntil.ts";
+} from "./r2/utils";
+import { elapsed } from "./utils/elapsed";
+import { repeatUntil } from "./utils/repeatUntil";
 
 async function validateIntegrity(): Promise<{
 	highestIndex: number;

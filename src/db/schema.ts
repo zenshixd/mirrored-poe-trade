@@ -1,23 +1,12 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-export const league = sqliteTable("league", {
-	id: integer("id").notNull().primaryKey(),
-	name: text("name").notNull().unique(),
-	isStandardLeague: integer("isStandardLeague", { mode: "boolean" }).notNull(),
-	isPrivateLeague: integer("isPrivateLeague", { mode: "boolean" }).notNull(),
-	isEventLeague: integer("isEventLeague", { mode: "boolean" }).notNull(),
-});
-export type League = typeof league.$inferSelect;
-
 export const publicStash = sqliteTable(
 	"publicStash",
 	{
 		id: text("id").notNull().primaryKey(),
 		name: text("name").notNull(),
 		accountName: text("accountName").notNull(),
-		league: integer("league")
-			.notNull()
-			.references(() => league.id),
+		league: text("league").notNull(),
 		itemsCount: integer("itemsCount").notNull(),
 	},
 	(t) => ({
@@ -34,9 +23,7 @@ export const itemListing = sqliteTable(
 	{
 		id: text("id").notNull().primaryKey(),
 		stashId: text("stashId").notNull(),
-		league: integer("league")
-			.notNull()
-			.references(() => league.id),
+		league: text("league").notNull(),
 		name: text("name").notNull(),
 		typeLine: text("typeLine").notNull(),
 		baseType: text("baseType").notNull(),
@@ -55,9 +42,3 @@ export const itemListing = sqliteTable(
 	}),
 );
 export type ItemListing = typeof itemListing.$inferSelect;
-
-export const appState = sqliteTable("appState", {
-	key: text("key").notNull().primaryKey(),
-	value: text("value").notNull(),
-});
-export type AppState = typeof appState.$inferSelect;

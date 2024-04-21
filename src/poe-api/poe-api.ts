@@ -1,5 +1,5 @@
-import { r2 } from "../r2/r2.ts";
-import { publicStashFilename } from "../r2/utils.ts";
+import { r2 } from "../r2/r2";
+import { publicStashFilename } from "../r2/utils";
 import type { PoeApiPublicStashResponse } from "./types.ts";
 
 export async function authorize() {

@@ -1,4 +1,4 @@
-import type { R2Error } from "./types.ts";
+import type { R2Error } from "./types";
 
 export function formatError(err: R2Error | Error | string) {
 	if (typeof err === "string") {

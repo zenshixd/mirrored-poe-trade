@@ -1,35 +1,13 @@
-import { asc, eq, inArray, sql } from "drizzle-orm";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { db } from "./db";
-import { toItemListing, toPublicStash } from "./db/item-listing.utils.ts";
-import { getLatestIndex, setLatestIndex } from "./db/next-change.utils.ts";
-import { itemListing, publicStash } from "./db/schema.ts";
-import { getPublicStashesFromR2 } from "./poe-api/poe-api.ts";
-import { formatStashIndex } from "./r2/utils.ts";
-import { elapsed } from "./utils/elapsed.ts";
+import { eq } from "drizzle-orm";
+import { deleteStash, deleteStashItems, getDb, queryStashes } from "./db";
+import { toItemListing, toPublicStash } from "./db/item-listing.utils";
+import { getLatestIndex, setLatestIndex } from "./db/next-change.utils";
+import { itemListing, publicStash } from "./db/schema";
+import { getPublicStashesFromR2 } from "./poe-api/poe-api";
+import { formatStashIndex } from "./r2/utils";
+import { elapsed } from "./utils/elapsed";
 
 let latestIndex = await getLatestIndex();
-
-const deleteItemListingsQuery = db
-	.delete(itemListing)
-	.where(eq(itemListing.stashId, sql.placeholder("stashId")))
-	.returning({ id: itemListing.id })
-	.prepare();
-const deletePublicStashesQuery = db
-	.delete(publicStash)
-	.where(eq(publicStash.id, sql.placeholder("stashId")))
-	.returning({ id: publicStash.id })
-	.prepare();
-const insertPublicStashQuery = db
-	.insert(publicStash)
-	.values({
-		id: sql.placeholder("id"),
-		name: sql.placeholder("name"),
-		league: sql.placeholder("league"),
-		accountName: sql.placeholder("accountName"),
-		itemsCount: sql.placeholder("itemsCount"),
-	})
-	.prepare();
 
 async function updateDb() {
 	const startTime = process.hrtime.bigint();
@@ -54,17 +32,14 @@ async function updateDb() {
 
 	console.log("[stashes] Querying changed stashes...");
 	const stashIds = stashes.map((stash) => stash.id);
-	const dbStashes = await db.query.publicStash.findMany({
-		where: inArray(publicStash.id, stashIds),
-		orderBy: asc(publicStash.id),
-	});
+	const dbStashes = await queryStashes(stashIds);
 	console.log(
 		`[stashes] Querying complete! Took ${elapsed(startTime)}ms and found ${
 			dbStashes.length
 		} stashes!`,
 	);
 
-	const leagueSkipped = 0;
+	let leagueSkipped = 0;
 	let createStashCount = 0;
 	let createStashItemsCount = 0;
 	let updateItemCount = 0;
@@ -82,22 +57,32 @@ async function updateDb() {
 		// }
 
 		const dbStash = dbStashes.find((dbStash) => dbStash.id === stash.id);
-		if (!stash.public) {
+		if (!stash.public && dbStash) {
 			// Stash got unlisted - remove all items from db
-			const deletedItems = await deleteItemListingsQuery.execute({
-				stashId: stash.id,
-			});
-			const deletedStashes = await deletePublicStashesQuery.execute({
-				stashId: stash.id,
-			});
-			deleteStashCount += deletedStashes.length;
-			deleteStashItemsCount += deletedItems.length;
+			// const deletedItems = await db
+			// 	.delete(itemListing)
+			// 	.where(eq(itemListing.stashId, stash.id))
+			// 	.returning({ id: itemListing.id });
+			// const deletedStashes = await db
+			// 	.delete(publicStash)
+			// 	.where(eq(publicStash.id, stash.id))
+			// 	.returning({ id: publicStash.id });
+
+			deleteStashCount += await deleteStash(stash.id);
+			deleteStashItemsCount += await deleteStashItems(stash.id);
 		}
 
+		if (!stash.league) {
+			// league is not set, so we can't do anything with it
+			leagueSkipped++;
+			continue;
+		}
+
+		const db = getDb(stash.league);
 		if (!dbStash && stash.public) {
 			// we havent indexed this stash tab
 			// just put everything in
-			await insertPublicStashQuery.execute(await toPublicStash(stash));
+			await db.insert(publicStash).values(await toPublicStash(stash));
 			if (stash.items.length > 0) {
 				await db
 					.insert(itemListing)
@@ -118,7 +103,10 @@ async function updateDb() {
 				stash.items.map((item) => toItemListing(stash, item)),
 			);
 
-			await deleteItemListingsQuery.execute({ stashId: stash.id });
+			await db
+				.delete(itemListing)
+				.where(eq(itemListing.stashId, stash.id))
+				.returning({ id: itemListing.id });
 			if (dbItems.length > 0) {
 				await db.insert(itemListing).values(dbItems);
 
@@ -142,10 +130,6 @@ async function updateDb() {
 }
 
 async function run() {
-	migrate(db, {
-		migrationsFolder: "./migrations",
-	});
-
 	while (true) {
 		try {
 			await updateDb();

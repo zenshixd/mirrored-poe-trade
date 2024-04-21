@@ -11,5 +11,8 @@
 				"useEnumInitializers": "off"
 			}
 		}
+	},
+	"files": {
+		"ignore": ["*.js"]
 	}
 }
